@@ -19,6 +19,7 @@ import {
   compressChatMemory,
   completeMessage,
   continueChatCompletion,
+  createImageMessage,
   prepareChatGeneration,
   regenerateReply,
   sendMessage,
@@ -35,7 +36,7 @@ import {
   mergeContinuation,
   stripIncompleteSpeakerTag,
 } from '../lib/stream-completion'
-import type { ChatMessage, ChatSendFeedback, RegexRule } from '../types'
+import type { ChatMessage, ChatSendFeedback, CreateImageMessageInput, RegexRule } from '../types'
 
 const MAX_CONTINUATION_ATTEMPTS = 2
 const STREAM_FLUSH_INTERVAL_MS = 1000 / 30
@@ -439,6 +440,15 @@ export function useChatMessages(sessionId: string) {
     [sessionId],
   )
 
+  const addImageMessage = useCallback(
+    async (input: CreateImageMessageInput) => {
+      const message = await createImageMessage(sessionId, input)
+      setMessages((current) => [...current, message])
+      return message
+    },
+    [sessionId],
+  )
+
   return {
     messages: isLoading ? [] : messages,
     hasMore,
@@ -452,5 +462,6 @@ export function useChatMessages(sessionId: string) {
     retry,
     loadEarlier,
     editMessage,
+    addImageMessage,
   }
 }

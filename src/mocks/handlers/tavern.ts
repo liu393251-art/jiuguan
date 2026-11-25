@@ -6,6 +6,7 @@ import {
   chatSessionPatchSchema,
   comboInputSchema,
   completeMessageInputSchema,
+  createImageMessageInputSchema,
   defaultGeneration,
   importRequestSchema,
   loadoutInputSchema,
@@ -34,6 +35,7 @@ import {
   VECTOR_RECALL_LIMIT,
 } from '@/features/tavern/lib/vector-memory'
 import { requestApiEmbeddings } from '@/features/tavern/lib/embedding-api'
+import { clearGeneratedImages, deleteGeneratedImages } from '@/features/tavern/lib/image-store'
 import { BUILTIN_CHAT_REGEX_ID } from '@/features/tavern/lib/builtin-regex'
 import { stripChatLayoutMarkers } from '@/features/tavern/lib/chat-layout'
 import { applyRegexRules } from '@/features/tavern/lib/regex-rules'
@@ -211,18 +213,28 @@ async function indexVectorMessages(sessionId: string) {
 function updateSessionMeta(session: ChatSession, messages: ChatMessage[]) {
   const last = messages[messages.length - 1]
   session.messageCount = messages.length
-  session.lastMessagePreview = last ? messagePreview(last.role, last.content) : '还没有开始这段对话'
+  session.lastMessagePreview = last ? messagePreview(last) : '还没有开始这段对话'
   session.updatedAt = now()
 }
 
-function messagePreview(role: ChatMessage['role'], content: string) {
-  const label = role === 'user' ? '你' : '对方'
+function messagePreview(message: Pick<ChatMessage, 'role' | 'content' | 'kind' | 'image'>) {
+  const label = message.role === 'user' ? '你' : '对方'
+  if (message.kind === 'image') {
+    const prompt = message.image?.prompt.replace(/\s+/g, ' ').trim()
+    return `${label}：[图片]${prompt ? ` ${prompt.slice(0, 32)}` : ''}`
+  }
   const visible =
-    role === 'assistant'
-      ? stripStateCards(stripChatArtifacts(stripChatLayoutMarkers(content)))
-      : stripChatLayoutMarkers(content)
+    message.role === 'assistant'
+      ? stripStateCards(stripChatArtifacts(stripChatLayoutMarkers(message.content)))
+      : stripChatLayoutMarkers(message.content)
   const text = visible.replace(/\s+/g, ' ').trim().slice(0, 42)
   return `${label}：${text || '…'}`
+}
+
+function imageIdsFromMessages(messages: ChatMessage[]) {
+  return messages.flatMap((message) =>
+    message.kind === 'image' && message.image?.id ? [message.image.id] : [],
+  )
 }
 
 async function buildMemoryRecall(state: TavernState, session: ChatSession, query: string) {
@@ -496,7 +508,9 @@ export const tavernHandlers = [
         memorySummary: '',
         generation: preset ? { ...preset.generation } : { ...defaultGeneration },
         fontSize: state.settings.appearance.defaultChatFontSize,
-        lastMessagePreview: firstMessage ? messagePreview('assistant', character.firstMessage) : '',
+        lastMessagePreview: firstMessage
+          ? messagePreview({ role: 'assistant', content: character.firstMessage })
+          : '',
         messageCount: firstMessage ? 1 : 0,
         createdAt: createdAtValue,
         updatedAt: createdAtValue,
@@ -564,7 +578,7 @@ export const tavernHandlers = [
         memorySummary: '',
         generation: { ...defaultGeneration },
         fontSize: state.settings.appearance.defaultChatFontSize,
-        lastMessagePreview: messagePreview(last.role, last.content),
+        lastMessagePreview: messagePreview(last),
         messageCount: messages.length,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -584,7 +598,9 @@ export const tavernHandlers = [
     await delay(340)
     try {
       const payload = z.object({ ids: z.array(z.string()).min(1) }).parse(await request.json())
+      let imageIds: string[] = []
       updateTavernState((state) => {
+        imageIds = payload.ids.flatMap((id) => imageIdsFromMessages(state.messages[id] ?? []))
         state.sessions = state.sessions.filter((session) => !payload.ids.includes(session.id))
         payload.ids.forEach((id) => delete state.messages[id])
       })
@@ -592,6 +608,11 @@ export const tavernHandlers = [
         await deleteVectorMemoriesBySessionIds(payload.ids)
       } catch (error) {
         console.warn('对话已删除，但对应的向量记忆清理失败。', error)
+      }
+      try {
+        await deleteGeneratedImages(imageIds)
+      } catch (error) {
+        console.warn('对话已删除，但对应的生成图片清理失败。', error)
       }
       return HttpResponse.json({ success: true, removed: payload.ids.length })
     } catch {
@@ -631,7 +652,9 @@ export const tavernHandlers = [
     if (!findSession(readTavernState(), sessionId)) {
       return HttpResponse.json(NOT_FOUND, { status: 404 })
     }
+    let imageIds: string[] = []
     updateTavernState((state) => {
+      imageIds = imageIdsFromMessages(state.messages[sessionId] ?? [])
       state.sessions = state.sessions.filter((session) => session.id !== sessionId)
       delete state.messages[sessionId]
     })
@@ -639,6 +662,11 @@ export const tavernHandlers = [
       await deleteVectorMemoriesBySessionIds([sessionId])
     } catch (error) {
       console.warn('对话已删除，但对应的向量记忆清理失败。', error)
+    }
+    try {
+      await deleteGeneratedImages(imageIds)
+    } catch (error) {
+      console.warn('对话已删除，但对应的生成图片清理失败。', error)
     }
     return HttpResponse.json({ success: true })
   }),
@@ -699,6 +727,42 @@ export const tavernHandlers = [
       return HttpResponse.json({ userMessage, assistantMessage }, { status: 201 })
     } catch {
       return HttpResponse.json({ message: '消息发送失败，请检查内容。' }, { status: 422 })
+    }
+  }),
+
+  http.post('/api/chats/:id/image-messages', async ({ params, request }) => {
+    await delay(180)
+    const sessionId = String(params.id)
+    try {
+      const payload = createImageMessageInputSchema.parse(await request.json())
+      const state = readTavernState()
+      if (!findSession(state, sessionId)) {
+        return HttpResponse.json(NOT_FOUND, { status: 404 })
+      }
+      if (state.messages[sessionId]?.some((message) => message.image?.id === payload.id)) {
+        return HttpResponse.json({ message: '这张图片已经发送到当前对话。' }, { status: 409 })
+      }
+
+      const message: ChatMessage = {
+        id: createUuid(),
+        sessionId,
+        role: 'assistant',
+        content: '',
+        status: 'complete',
+        createdAt: now(),
+        kind: 'image',
+        image: { ...payload, revisedPrompt: payload.revisedPrompt ?? null },
+      }
+      updateTavernState((current) => {
+        const messages = current.messages[sessionId] ?? []
+        messages.push(message)
+        current.messages[sessionId] = messages
+        const target = findSession(current, sessionId)
+        if (target) updateSessionMeta(target, messages)
+      })
+      return HttpResponse.json(message, { status: 201 })
+    } catch {
+      return HttpResponse.json({ message: '图片消息格式不正确。' }, { status: 422 })
     }
   }),
 
@@ -812,6 +876,12 @@ export const tavernHandlers = [
     const lastAssistant = [...messages].reverse().find((message) => message.role === 'assistant')
     if (!session || !lastAssistant) {
       return HttpResponse.json({ message: '还没有可以重试的回复。' }, { status: 404 })
+    }
+    if (lastAssistant.kind === 'image') {
+      return HttpResponse.json(
+        { message: '最近一条是生成图片，暂时不能重试文字回复。' },
+        { status: 409 },
+      )
     }
     const assistantMessage: ChatMessage = {
       id: createUuid(),
@@ -1434,7 +1504,7 @@ export const tavernHandlers = [
     await delay(360)
     try {
       const state = resetTavernStore()
-      await clearVectorMemoryStore()
+      await Promise.all([clearVectorMemoryStore(), clearGeneratedImages()])
       return HttpResponse.json({
         success: true,
         characters: state.characters.length,

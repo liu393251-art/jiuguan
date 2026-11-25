@@ -197,6 +197,45 @@ export const apiProfileSchema = z.object({
 
 export const apiProfileInputSchema = apiProfileSchema.omit({ id: true })
 
+export const imageSizeSchema = z.enum([
+  'auto',
+  '1024x1024',
+  '1024x1536',
+  '1536x1024',
+  '1792x1024',
+  '1024x1792',
+  '512x512',
+])
+
+export const imageQualitySchema = z.enum(['auto', 'low', 'medium', 'high', 'standard', 'hd'])
+
+export const imageGenerationSettingsSchema = z.object({
+  baseUrl: z.string().trim().max(500).default(''),
+  apiKey: z.string().trim().max(500).default(''),
+  model: z.string().trim().max(120).default('gpt-image-1'),
+  size: imageSizeSchema.default('1024x1024'),
+  quality: imageQualitySchema.default('auto'),
+})
+
+export const defaultImageGeneration: ImageGenerationSettings = {
+  baseUrl: '',
+  apiKey: '',
+  model: 'gpt-image-1',
+  size: '1024x1024',
+  quality: 'auto',
+}
+
+export const imageAttachmentSchema = z.object({
+  id: z.string().min(1),
+  prompt: z.string().trim().min(1).max(4000),
+  revisedPrompt: z.string().nullable().optional(),
+  model: z.string().trim().max(120),
+  size: z.string().trim().max(40),
+  mimeType: z.string().trim().max(120),
+})
+
+export const createImageMessageInputSchema = imageAttachmentSchema
+
 export const chatSessionSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -239,6 +278,8 @@ export const chatMessageSchema = z.object({
   content: z.string(),
   status: z.enum(['complete', 'streaming', 'stopped', 'error']),
   createdAt: z.string().min(1),
+  kind: z.enum(['text', 'image']).optional(),
+  image: imageAttachmentSchema.nullable().optional(),
 })
 
 export const sendMessageInputSchema = z.object({
@@ -298,6 +339,7 @@ export const settingsSchema = z.object({
   memoryProfile: memoryProfileSchema,
   identity: userIdentitySchema,
   appearance: appearanceSettingsSchema,
+  imageGeneration: imageGenerationSettingsSchema.default(defaultImageGeneration),
 })
 
 export const settingsPatchSchema = z.object({
@@ -305,6 +347,7 @@ export const settingsPatchSchema = z.object({
   memoryProfile: memoryProfileSchema.optional(),
   identity: userIdentitySchema.optional(),
   appearance: appearanceSettingsSchema.optional(),
+  imageGeneration: imageGenerationSettingsSchema.optional(),
 })
 
 export const importKindSchema = z.enum(['character', 'preset', 'worldbook', 'regex', 'pack'])
@@ -367,6 +410,21 @@ export type UserIdentity = z.infer<typeof userIdentitySchema>
 export type AppearanceSettings = z.infer<typeof appearanceSettingsSchema>
 export type ApiProfile = z.infer<typeof apiProfileSchema>
 export type ApiProfileInput = z.infer<typeof apiProfileInputSchema>
+export type ImageSize = z.infer<typeof imageSizeSchema>
+export type ImageQuality = z.infer<typeof imageQualitySchema>
+export type ImageGenerationSettings = z.infer<typeof imageGenerationSettingsSchema>
+export type ImagePromptMode =
+  | 'free'
+  | 'character'
+  | 'face'
+  | 'persona'
+  | 'story'
+  | 'last'
+  | 'raw-last'
+  | 'background'
+  | 'message'
+export type ImageAttachment = z.infer<typeof imageAttachmentSchema>
+export type CreateImageMessageInput = z.infer<typeof createImageMessageInputSchema>
 export type ChatSession = z.infer<typeof chatSessionSchema>
 export type ChatSessionPatch = z.infer<typeof chatSessionPatchSchema>
 export type ChatMessage = z.infer<typeof chatMessageSchema>

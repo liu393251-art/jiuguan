@@ -1,4 +1,4 @@
-import { Check, Copy, Pencil, RotateCcw, X } from 'lucide-react'
+import { Check, Copy, Paintbrush, Pencil, RotateCcw, X } from 'lucide-react'
 import { Fragment, memo, useMemo, useState, type CSSProperties } from 'react'
 import { toast } from 'sonner'
 
@@ -22,6 +22,7 @@ import { stripChatArtifacts } from '../lib/safe-markdown-text'
 import { extractStateCard, type StateCardData } from '../lib/state-card'
 import type { ChatMessage } from '../types'
 import { CharacterAvatar } from './avatar'
+import { GeneratedImageMessage } from './generated-image'
 import { StateCard } from './state-card'
 
 type MessageItemProps = {
@@ -36,6 +37,7 @@ type MessageItemProps = {
   onCopy: (message: ChatMessage) => void
   onEdit: (messageId: string, content: string) => Promise<void>
   onRetry: () => void
+  onGenerateImage: (message: ChatMessage) => void
 }
 
 export const MessageItem = memo(function MessageItem({
@@ -50,6 +52,7 @@ export const MessageItem = memo(function MessageItem({
   onCopy,
   onEdit,
   onRetry,
+  onGenerateImage,
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.content)
@@ -108,6 +111,16 @@ export const MessageItem = memo(function MessageItem({
     }
   }
 
+  if (message.kind === 'image' && message.image) {
+    return (
+      <GeneratedImageMessage
+        message={message}
+        characterName={characterName}
+        avatarTone={avatarTone}
+      />
+    )
+  }
+
   if (transcript) {
     return (
       <TranscriptMessage
@@ -123,6 +136,7 @@ export const MessageItem = memo(function MessageItem({
         stateCard={stateCard}
         onCopy={onCopy}
         onRetry={onRetry}
+        onGenerateImage={onGenerateImage}
       />
     )
   }
@@ -142,6 +156,7 @@ export const MessageItem = memo(function MessageItem({
         stateCard={stateCard}
         onCopy={onCopy}
         onRetry={onRetry}
+        onGenerateImage={onGenerateImage}
       />
     )
   }
@@ -159,6 +174,7 @@ export const MessageItem = memo(function MessageItem({
         stateCard={stateCard}
         onCopy={onCopy}
         onRetry={onRetry}
+        onGenerateImage={onGenerateImage}
       />
     )
   }
@@ -253,6 +269,17 @@ export const MessageItem = memo(function MessageItem({
               <Pencil className="size-3" />
               编辑
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground h-7 px-2 text-[10px]"
+              aria-label="用这条消息生成图片"
+              onClick={() => onGenerateImage(message)}
+              disabled={!message.content.trim() || message.status !== 'complete'}
+            >
+              <Paintbrush className="size-3" />
+              生图
+            </Button>
           </div>
         )}
       </div>
@@ -306,6 +333,7 @@ function NarrationMessage({
   stateCard,
   onCopy,
   onRetry,
+  onGenerateImage,
 }: {
   message: ChatMessage
   content: string
@@ -317,6 +345,7 @@ function NarrationMessage({
   stateCard: StateCardData | null
   onCopy: (message: ChatMessage) => void
   onRetry: () => void
+  onGenerateImage: (message: ChatMessage) => void
 }) {
   return (
     <article
@@ -358,6 +387,17 @@ function NarrationMessage({
           >
             <Copy className="size-3" />
             复制
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground h-7 px-2 text-[10px]"
+            aria-label="用这条消息生成图片"
+            onClick={() => onGenerateImage(message)}
+            disabled={!message.content.trim() || message.status !== 'complete'}
+          >
+            <Paintbrush className="size-3" />
+            生图
           </Button>
           {canRetry && !isStreaming && (
             <Button
@@ -472,6 +512,7 @@ function TranscriptMessage({
   stateCard,
   onCopy,
   onRetry,
+  onGenerateImage,
 }: {
   message: ChatMessage
   transcript: ChatTranscript
@@ -485,6 +526,7 @@ function TranscriptMessage({
   stateCard: StateCardData | null
   onCopy: (message: ChatMessage) => void
   onRetry: () => void
+  onGenerateImage: (message: ChatMessage) => void
 }) {
   const firstAudibleEntryIndex = transcript.entries.findIndex((entry) => {
     const isUser = isUserSpeaker(entry.speaker, userName)
@@ -638,6 +680,17 @@ function TranscriptMessage({
           >
             <Copy className="size-3" />
             复制整段
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground h-7 px-2 text-[10px]"
+            aria-label="用这条消息生成图片"
+            onClick={() => onGenerateImage(message)}
+            disabled={!message.content.trim() || message.status !== 'complete'}
+          >
+            <Paintbrush className="size-3" />
+            生图
           </Button>
           {canRetry && !isStreaming && (
             <Button

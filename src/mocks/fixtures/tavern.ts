@@ -1,4 +1,4 @@
-import type { TavernState } from '@/features/tavern/types'
+import { defaultImageGeneration, type TavernState } from '@/features/tavern/types'
 import { createBuiltinComboResources } from '@/features/tavern/lib/builtin-combos'
 import { createBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
 
@@ -32,6 +32,7 @@ export function createSeedState(): TavernState {
       appearance: {
         defaultChatFontSize: 15,
       },
+      imageGeneration: { ...defaultImageGeneration },
     },
   }
 }

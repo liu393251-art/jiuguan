@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  Image as ImageIcon,
   KeyRound,
   Loader2,
   Moon,
@@ -49,14 +50,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ConfirmDialog } from '@/features/tavern/components/confirm-dialog'
 import { PageHeader } from '@/features/tavern/components/page-header'
 import { useSettings, useVectorMemoryStats } from '@/features/tavern/hooks/use-tavern'
-import type {
-  ApiProfile,
-  ApiProfileInput,
-  AppearanceSettings,
-  MemoryMode,
-  MemoryProfile,
-  UserIdentity,
-} from '@/features/tavern/types'
+import { IMAGE_QUALITY_OPTIONS, IMAGE_SIZE_OPTIONS } from '@/features/tavern/lib/image-options'
 import {
   clearVectorMemories,
   exportData,
@@ -66,6 +60,16 @@ import {
   testApiConnection,
   updateSettings,
 } from '@/features/tavern/api'
+import {
+  defaultImageGeneration,
+  type ApiProfile,
+  type ApiProfileInput,
+  type AppearanceSettings,
+  type ImageGenerationSettings,
+  type MemoryMode,
+  type MemoryProfile,
+  type UserIdentity,
+} from '@/features/tavern/types'
 import { cn } from '@/lib/cn'
 import { createUuid } from '@/lib/id'
 import { useAppStore, type Theme } from '@/stores/app-store'
@@ -75,6 +79,7 @@ const selectClass =
 
 type SettingsSectionId =
   | 'models'
+  | 'images'
   | 'characters'
   | 'identity'
   | 'theme'
@@ -89,7 +94,10 @@ const SETTINGS_NAV_GROUPS: {
   items: { id: SettingsSectionId; label: string; icon: typeof Brain }[]
 }[] = [
   {
-    items: [{ id: 'models', label: '模型与服务', icon: AppWindow }],
+    items: [
+      { id: 'models', label: '模型与服务', icon: AppWindow },
+      { id: 'images', label: '生图 API', icon: ImageIcon },
+    ],
   },
   {
     items: [
@@ -135,8 +143,14 @@ export function SettingsPage() {
   const [identityOverride, setIdentity] = useState<UserIdentity | null>(null)
   const [memoryOverride, setMemory] = useState<MemoryProfile | null>(null)
   const [appearanceOverride, setAppearance] = useState<AppearanceSettings | null>(null)
+  const [imageGenerationOverride, setImageGeneration] = useState<ImageGenerationSettings | null>(
+    null,
+  )
   const [identityError, setIdentityError] = useState('')
-  const [saving, setSaving] = useState<'identity' | 'memory' | 'appearance' | null>(null)
+  const [saving, setSaving] = useState<
+    'identity' | 'memory' | 'appearance' | 'image-generation' | null
+  >(null)
+  const [showImageApiKey, setShowImageApiKey] = useState(false)
   const [savingApiProfile, setSavingApiProfile] = useState(false)
   const [deletingApiProfile, setDeletingApiProfile] = useState(false)
   const [testingApiProfileId, setTestingApiProfileId] = useState('')
@@ -150,6 +164,9 @@ export function SettingsPage() {
   const identity = identityOverride ?? settingsQuery.data?.identity ?? null
   const memory = memoryOverride ?? settingsQuery.data?.memoryProfile ?? null
   const appearance = appearanceOverride ?? settingsQuery.data?.appearance ?? null
+  const imageGeneration =
+    imageGenerationOverride ?? settingsQuery.data?.imageGeneration ?? defaultImageGeneration
+  const imageApiConfigured = Boolean(imageGeneration.baseUrl.trim() && imageGeneration.model.trim())
   const vectorApiProfile =
     apiProfiles.find((profile) => profile.id === memory?.apiProfileId) ?? null
   const rawSection = searchParams.get('section')
@@ -279,6 +296,40 @@ export function SettingsPage() {
     }
   }
 
+  async function saveImageGeneration() {
+    const baseUrl = imageGeneration.baseUrl.trim().replace(/\/$/, '')
+    const model = imageGeneration.model.trim()
+    if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
+      toast.error('Base URL 格式不正确', {
+        description: '请填写以 http:// 或 https:// 开头的地址。',
+      })
+      return
+    }
+    if (baseUrl && !model) {
+      toast.error('请选择生图模型')
+      return
+    }
+    setSaving('image-generation')
+    try {
+      await updateSettings({
+        imageGeneration: {
+          ...imageGeneration,
+          baseUrl,
+          model,
+          apiKey: imageGeneration.apiKey.trim(),
+        },
+      })
+      toast.success('生图 API 已保存', {
+        description: '聊天输入区上方的“生图”按钮会使用这套配置。',
+      })
+      settingsQuery.refresh()
+    } catch (error) {
+      toast.error('生图 API 没有保存', { description: getErrorMessage(error) })
+    } finally {
+      setSaving(null)
+    }
+  }
+
   async function handleExport() {
     setExporting(true)
     try {
@@ -362,7 +413,7 @@ export function SettingsPage() {
         <PageHeader
           eyebrow="本地偏好"
           title="设置"
-          description="管理真实 API 连接、身份、记忆和外观偏好。没有连接时，聊天会提示先完成配置。"
+          description="管理聊天与生图 API、身份、记忆和外观偏好。没有连接时，对应功能会提示先完成配置。"
           actions={
             <div className="bg-card flex rounded-xl border p-1">
               <ThemeButton
@@ -590,6 +641,140 @@ export function SettingsPage() {
                 API Key
                 会随连接保存在本机浏览器。这里仅适合测试；不要在共享设备或生产环境填写真实密钥。
               </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className={sectionVisibility('images')}>
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <ImageIcon className="size-4" />
+                    生图 API
+                  </CardTitle>
+                  <CardDescription>
+                    配置 OpenAI 兼容的 Images 接口。聊天中可按角色、故事、消息原文或自由描述生图；
+                    自动模式会先用聊天 API 写画面提示词，再调用这里。
+                  </CardDescription>
+                </div>
+                <Badge variant={imageApiConfigured ? 'success' : 'secondary'}>
+                  {imageApiConfigured ? '已配置' : '待配置'}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="image-api-base">Base URL</Label>
+                <Input
+                  id="image-api-base"
+                  value={imageGeneration.baseUrl}
+                  onChange={(event) =>
+                    setImageGeneration({ ...imageGeneration, baseUrl: event.target.value })
+                  }
+                  placeholder="https://api.openai.com/v1"
+                  spellCheck={false}
+                />
+                <p className="text-muted-foreground text-[11px]">
+                  默认请求 <code>/images/generations</code>；也可以直接粘贴完整接口地址。
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="image-api-model">模型</Label>
+                  <Input
+                    id="image-api-model"
+                    value={imageGeneration.model}
+                    onChange={(event) =>
+                      setImageGeneration({ ...imageGeneration, model: event.target.value })
+                    }
+                    placeholder="gpt-image-1"
+                    spellCheck={false}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="image-api-key">API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="image-api-key"
+                      type={showImageApiKey ? 'text' : 'password'}
+                      value={imageGeneration.apiKey}
+                      onChange={(event) =>
+                        setImageGeneration({ ...imageGeneration, apiKey: event.target.value })
+                      }
+                      placeholder="sk-..."
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="pr-10 font-mono text-xs"
+                    />
+                    <button
+                      type="button"
+                      aria-label={showImageApiKey ? '隐藏生图密钥' : '显示生图密钥'}
+                      onClick={() => setShowImageApiKey((current) => !current)}
+                      className="text-muted-foreground hover:text-foreground absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1"
+                    >
+                      {showImageApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="image-api-size">默认尺寸</Label>
+                  <select
+                    id="image-api-size"
+                    value={imageGeneration.size}
+                    onChange={(event) =>
+                      setImageGeneration({
+                        ...imageGeneration,
+                        size: event.target.value as ImageGenerationSettings['size'],
+                      })
+                    }
+                    className={selectClass}
+                  >
+                    {IMAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="image-api-quality">默认质量</Label>
+                  <select
+                    id="image-api-quality"
+                    value={imageGeneration.quality}
+                    onChange={(event) =>
+                      setImageGeneration({
+                        ...imageGeneration,
+                        quality: event.target.value as ImageGenerationSettings['quality'],
+                      })
+                    }
+                    className={selectClass}
+                  >
+                    {IMAGE_QUALITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <p className="text-muted-foreground text-[11px] leading-relaxed">
+                生图 API Key 与聊天连接分开保存，同样只保存在当前设备。可留空 Base URL
+                以关闭生图；部分服务商不支持 quality 或 512×512，出错时改用“自动/由接口决定”。
+              </p>
+              <Button
+                onClick={() => void saveImageGeneration()}
+                disabled={saving === 'image-generation'}
+              >
+                {saving === 'image-generation' ? <Loader2 className="animate-spin" /> : <Save />}
+                保存生图 API
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -876,7 +1061,7 @@ export function SettingsPage() {
                 disabled={exporting}
               >
                 {exporting ? <Loader2 className="animate-spin" /> : <Download />}
-                导出全部数据
+                导出数据（不含图片）
               </Button>
               <Button
                 variant="outline"
@@ -888,7 +1073,8 @@ export function SettingsPage() {
               </Button>
             </div>
             <p className="text-muted-foreground text-[11px] leading-relaxed">
-              清空会删除当前浏览器里的全部角色、对话、内容库和设置，回到空状态；不会恢复示例内容。
+              JSON 导出包含角色、对话、内容库和设置，不包含 IndexedDB
+              里的生成图片。清空会删除当前浏览器里的全部角色、对话、内容库、生成图片和设置，回到空状态；不会恢复示例内容。
             </p>
           </CardContent>
         </Card>

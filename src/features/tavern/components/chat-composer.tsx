@@ -1,4 +1,4 @@
-import { Loader2, SendHorizontal, Square } from 'lucide-react'
+import { Image as ImageIcon, Loader2, SendHorizontal, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
@@ -10,12 +10,14 @@ import { getErrorMessage } from '@/services/http'
 export function ChatComposer({
   onSend,
   onStop,
+  onGenerateImage,
   isStreaming,
   disabled,
   fontSize,
 }: {
   onSend: (content: string) => Promise<ChatSendFeedback | null>
   onStop: () => void
+  onGenerateImage?: () => void
   isStreaming: boolean
   disabled?: boolean
   fontSize: number
@@ -71,6 +73,20 @@ export function ChatComposer({
     <div className="border-border/80 bg-background/92 safe-bottom border-t backdrop-blur-xl">
       <div className="mx-auto w-full max-w-3xl px-3 pt-2.5 pb-2 sm:px-6 sm:pb-3">
         <div className="mb-1.5 flex items-center gap-1.5 px-1">
+          {onGenerateImage && (
+            <button
+              type="button"
+              aria-label="生成图片"
+              title="生成图片"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={onGenerateImage}
+              disabled={disabled || isStreaming || sending}
+              className="text-muted-foreground hover:bg-muted hover:text-foreground border-border/70 bg-card flex h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 text-[11px] font-semibold shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <ImageIcon className="size-3.5" />
+              生图
+            </button>
+          )}
           <button
             type="button"
             aria-label="插入引号"
@@ -105,7 +121,7 @@ export function ChatComposer({
             }}
             rows={1}
             disabled={disabled}
-            placeholder={isStreaming ? '对方正在续写……' : '说点什么，让今晚继续'}
+            placeholder={isStreaming ? '正在生成回复…' : '输入消息…'}
             aria-label="消息内容"
             style={{ fontSize: `${Math.max(14, fontSize)}px` }}
             className="placeholder:text-muted-foreground/60 max-h-[168px] min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 leading-relaxed outline-none disabled:cursor-not-allowed disabled:opacity-60"

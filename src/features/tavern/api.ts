@@ -33,6 +33,8 @@ import {
   type ChatGenerationContext,
   type Combo,
   type ComboInput,
+  type CreateImageMessageInput,
+  type ImageGenerationSettings,
   type ImportKind,
   type ImportResult,
   type Loadout,
@@ -56,6 +58,13 @@ import {
   type ChatCompletionMessage,
   type PreparedChatGeneration,
 } from './lib/chat-completion'
+import { generateImage as requestGeneratedImage } from './lib/image-generation'
+import {
+  buildImagePromptMessages,
+  cleanGeneratedImagePrompt,
+  imagePromptGenerationSettings,
+  type AutoImagePromptMode,
+} from './lib/image-prompt'
 import {
   buildCompressionChunkPrompt,
   buildCompressionMergePrompt,
@@ -167,6 +176,25 @@ async function getAllChatMessages(sessionId: string, signal?: AbortSignal) {
 
 export async function sendMessage(sessionId: string, content: string) {
   return postJson(`/api/chats/${sessionId}/messages`, { content }, sendMessageResponseSchema)
+}
+
+export async function createImageMessage(
+  sessionId: string,
+  input: CreateImageMessageInput,
+): Promise<ChatMessage> {
+  return postJson(`/api/chats/${sessionId}/image-messages`, input, chatMessageSchema)
+}
+
+export async function generateImage(
+  config: ImageGenerationSettings,
+  request: {
+    prompt: string
+    size?: ImageGenerationSettings['size']
+    quality?: ImageGenerationSettings['quality']
+    signal?: AbortSignal
+  },
+) {
+  return requestGeneratedImage(config, request)
 }
 
 export async function updateMessage(sessionId: string, messageId: string, content: string) {
@@ -407,14 +435,7 @@ export async function getChatGenerationContext(
   return getJson(`/api/chats/${sessionId}/generation-context`, chatGenerationContextSchema, signal)
 }
 
-export async function prepareChatGeneration(
-  sessionId: string,
-  signal?: AbortSignal,
-): Promise<PreparedChatGeneration & { profile: ApiProfile }> {
-  const [context, settings] = await Promise.all([
-    getChatGenerationContext(sessionId, signal),
-    getSettings(signal),
-  ])
+function resolveChatProfile(context: ChatGenerationContext, settings: Settings) {
   const profile =
     settings.apiProfiles.find((item) => item.id === context.session.apiProfileId) ??
     settings.apiProfiles[0]
@@ -428,6 +449,18 @@ export async function prepareChatGeneration(
   if (!profile.model.trim()) {
     throw new Error(`「${profile.name}」还没有选择模型。`)
   }
+  return profile
+}
+
+export async function prepareChatGeneration(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<PreparedChatGeneration & { profile: ApiProfile }> {
+  const [context, settings] = await Promise.all([
+    getChatGenerationContext(sessionId, signal),
+    getSettings(signal),
+  ])
+  const profile = resolveChatProfile(context, settings)
 
   return {
     profile,
@@ -437,6 +470,35 @@ export async function prepareChatGeneration(
     outputRules: context.regexRules,
     stop: buildUserTurnStopSequences(context.identity.displayName),
   }
+}
+
+export async function generateImagePrompt(
+  sessionId: string,
+  mode: AutoImagePromptMode,
+  signal?: AbortSignal,
+) {
+  const [context, settings] = await Promise.all([
+    getChatGenerationContext(sessionId, signal),
+    getSettings(signal),
+  ])
+  const profile = resolveChatProfile(context, settings)
+  const result = await streamChatCompletion(
+    {
+      profile,
+      messages: buildImagePromptMessages(context, mode),
+      generation: imagePromptGenerationSettings(),
+      memoryMode: 'off',
+      outputRules: [],
+      stop: [],
+    },
+    () => {},
+    signal,
+  )
+  const prompt = cleanGeneratedImagePrompt(result.content)
+  if (!prompt) {
+    throw new Error('聊天模型没有返回可用的画面提示词，请重试或改用自由描述。')
+  }
+  return prompt
 }
 
 async function readResponseError(response: Response) {

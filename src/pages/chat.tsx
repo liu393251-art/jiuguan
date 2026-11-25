@@ -7,8 +7,14 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ChatComposer } from '@/features/tavern/components/chat-composer'
 import { CharacterAvatar } from '@/features/tavern/components/avatar'
+import { ImageGenerationDialog } from '@/features/tavern/components/image-generation-dialog'
 import { MessageItem } from '@/features/tavern/components/message-item'
-import { getCharacter, getErrorMessage, updateChat } from '@/features/tavern/api'
+import {
+  generateImagePrompt,
+  getCharacter,
+  getErrorMessage,
+  updateChat,
+} from '@/features/tavern/api'
 import {
   useAsyncData,
   useChatMessages,
@@ -16,9 +22,15 @@ import {
   useSettings,
 } from '@/features/tavern/hooks/use-tavern'
 import { stripChatLayoutMarkers } from '@/features/tavern/lib/chat-layout'
+import { cleanImageSourceText, type AutoImagePromptMode } from '@/features/tavern/lib/image-prompt'
 import { stripChatArtifacts } from '@/features/tavern/lib/safe-markdown-text'
 import { stripStateCards } from '@/features/tavern/lib/state-card'
-import type { ChatMessage } from '@/features/tavern/types'
+import {
+  defaultImageGeneration,
+  type ChatMessage,
+  type CreateImageMessageInput,
+  type ImagePromptMode,
+} from '@/features/tavern/types'
 import { cn } from '@/lib/cn'
 
 const MIN_FONT = 13
@@ -79,9 +91,14 @@ export function ChatPage() {
   const [fontOverride, setFontOverride] = useState<{ sessionId: string; value: number } | null>(
     null,
   )
+  const [imageDialog, setImageDialog] = useState<{
+    mode: ImagePromptMode
+    prompt?: string
+  } | null>(null)
   const [showJump, setShowJump] = useState(false)
   const fontSize = fontOverride?.sessionId === id ? fontOverride.value : (session?.fontSize ?? 15)
   const retryMessages = messagesState.retry
+  const imageConfig = settingsQuery.data?.imageGeneration ?? defaultImageGeneration
 
   const pinToBottomNow = useCallback(() => {
     const element = scrollRef.current
@@ -117,14 +134,7 @@ export function ChatPage() {
     } else {
       syncScroll()
     }
-  }, [
-    fontSize,
-    id,
-    messagesState.isLoading,
-    messagesState.messages,
-    pinToBottomNow,
-    syncScroll,
-  ])
+  }, [fontSize, id, messagesState.isLoading, messagesState.messages, pinToBottomNow, syncScroll])
 
   useEffect(() => {
     const scrollElement = scrollRef.current
@@ -175,6 +185,26 @@ export function ChatPage() {
     stickRef.current = true
     return messagesState.send(content)
   }
+
+  async function handleAttachImage(input: CreateImageMessageInput) {
+    stickRef.current = true
+    await messagesState.addImageMessage(input)
+  }
+
+  const handleGeneratePrompt = useCallback(
+    (mode: AutoImagePromptMode, signal: AbortSignal) => generateImagePrompt(id, mode, signal),
+    [id],
+  )
+
+  const handleGenerateFromMessage = useCallback((message: ChatMessage) => {
+    const prompt = cleanImageSourceText(message.content)
+    if (!prompt) {
+      toast.error('这条消息没有可用于生图的文字')
+      return
+    }
+    stickRef.current = true
+    setImageDialog({ mode: 'message', prompt })
+  }, [])
 
   const handleRetry = useCallback(async () => {
     stickRef.current = true
@@ -248,11 +278,19 @@ export function ChatPage() {
   let lastAssistantId: string | undefined
   for (let index = messagesState.messages.length - 1; index >= 0; index -= 1) {
     const message = messagesState.messages[index]
-    if (message.role === 'assistant' && message.status !== 'streaming') {
+    if (message.role !== 'assistant' || message.status === 'streaming') continue
+    if (message.kind !== 'image') {
       lastAssistantId = message.id
-      break
     }
+    break
   }
+  const lastSourceMessage = [...messagesState.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.kind !== 'image' && message.status === 'complete' && message.content.trim(),
+    )
+  const lastMessageText = lastSourceMessage ? cleanImageSourceText(lastSourceMessage.content) : ''
   const deferredBeforeIndex =
     messagesState.messages.length >= DEFERRED_RENDER_MIN_MESSAGES
       ? messagesState.messages.length - DEFERRED_RENDER_WINDOW
@@ -356,8 +394,10 @@ export function ChatPage() {
             </div>
           ) : messagesState.messages.length === 0 ? (
             <div className="p-10 text-center">
-              <p className="font-display text-lg font-semibold">还没有第一句话</p>
-              <p className="text-muted-foreground mt-2 text-sm">在下面开口，今晚就开始了。</p>
+              <p className="font-display text-lg font-semibold">还没有消息</p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                在下方输入框发送第一条消息即可开始对话。
+              </p>
             </div>
           ) : (
             messagesState.messages.map((message, index) => (
@@ -374,13 +414,14 @@ export function ChatPage() {
                 onCopy={handleCopy}
                 onEdit={messagesState.editMessage}
                 onRetry={handleRetry}
+                onGenerateImage={handleGenerateFromMessage}
               />
             ))
           )}
           {messagesState.isStreaming && (
             <div className="text-muted-foreground flex items-center gap-2 px-6 py-2 text-[11px]">
               <Loader2 className="size-3 animate-spin" />
-              {character?.name ?? '对方'}正在续写，点输入框右侧可以停止
+              正在生成回复，点击输入框右侧按钮可停止
             </div>
           )}
           {messagesState.isCompressingMemory && (
@@ -411,10 +452,26 @@ export function ChatPage() {
       <ChatComposer
         onSend={handleSend}
         onStop={() => void messagesState.stop()}
+        onGenerateImage={() => setImageDialog({ mode: 'free' })}
         isStreaming={messagesState.isStreaming}
         disabled={messagesState.isLoading}
         fontSize={fontSize}
       />
+      {imageDialog && (
+        <ImageGenerationDialog
+          open
+          config={imageConfig}
+          characterName={character?.name ?? session.title}
+          initialMode={imageDialog.mode}
+          initialPrompt={imageDialog.prompt}
+          lastMessageText={lastMessageText}
+          onOpenChange={(next) => {
+            if (!next) setImageDialog(null)
+          }}
+          onGeneratePrompt={handleGeneratePrompt}
+          onAttach={handleAttachImage}
+        />
+      )}
     </div>
   )
 }
