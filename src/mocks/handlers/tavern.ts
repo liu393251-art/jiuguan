@@ -38,6 +38,7 @@ import { BUILTIN_CHAT_REGEX_ID } from '@/features/tavern/lib/builtin-regex'
 import { stripChatLayoutMarkers } from '@/features/tavern/lib/chat-layout'
 import { applyRegexRules } from '@/features/tavern/lib/regex-rules'
 import { stripChatArtifacts } from '@/features/tavern/lib/safe-markdown-text'
+import { stripStateCards } from '@/features/tavern/lib/state-card'
 import { createUuid } from '@/lib/id'
 
 import { readTavernState, resetTavernStore, updateTavernState } from '../mock-db'
@@ -153,7 +154,7 @@ async function indexVectorMessages(sessionId: string) {
   const messages = (snapshot.messages[sessionId] ?? []).filter(
     (message) =>
       message.role !== 'system' &&
-      stripChatLayoutMarkers(message.content).trim().length >= 4 &&
+      stripStateCards(stripChatLayoutMarkers(message.content)).trim().length >= 4 &&
       message.status !== 'error' &&
       message.status !== 'streaming',
   )
@@ -173,7 +174,7 @@ async function indexVectorMessages(sessionId: string) {
     try {
       const embeddings = await requestApiEmbeddings(
         vectorProfile,
-        pending.map((message) => stripChatLayoutMarkers(message.content)),
+        pending.map((message) => stripStateCards(stripChatLayoutMarkers(message.content))),
       )
       drafts = createApiVectorMemoryDrafts(pending, scopeId, vectorProfile.model.trim(), embeddings)
     } catch {
@@ -218,7 +219,7 @@ function messagePreview(role: ChatMessage['role'], content: string) {
   const label = role === 'user' ? '你' : '对方'
   const visible =
     role === 'assistant'
-      ? stripChatArtifacts(stripChatLayoutMarkers(content))
+      ? stripStateCards(stripChatArtifacts(stripChatLayoutMarkers(content)))
       : stripChatLayoutMarkers(content)
   const text = visible.replace(/\s+/g, ' ').trim().slice(0, 42)
   return `${label}：${text || '…'}`

@@ -28,6 +28,7 @@ import {
 } from '../api'
 import { applyRegexRules } from '../lib/regex-rules'
 import { stripChatArtifacts } from '../lib/safe-markdown-text'
+import { stripStateCards } from '../lib/state-card'
 import {
   assessCompletion,
   canContinueCompletion,
@@ -47,6 +48,10 @@ type AsyncState<T> = {
 
 function cleanAssistantContent(content: string, rules: RegexRule[]) {
   return stripChatArtifacts(applyRegexRules(content, rules, 'output'))
+}
+
+function hasVisibleAssistantContent(content: string) {
+  return stripStateCards(content).trim().length > 0
 }
 
 export function useAsyncData<T>(load: (signal: AbortSignal) => Promise<T>, key: string) {
@@ -249,7 +254,7 @@ export function useChatMessages(sessionId: string) {
         )
         if (controller.signal.aborted) return null
         let content = cleanAssistantContent(raw.content, outputRulesRef.current)
-        if (!content.trim()) {
+        if (!hasVisibleAssistantContent(content)) {
           throw new Error('模型回复没有可显示的正文，可能只返回了状态更新；请检查输出正则或重试。')
         }
         let completion = assessCompletion(content, raw)
@@ -294,7 +299,7 @@ export function useChatMessages(sessionId: string) {
           }
         }
 
-        if (!completion.content.trim()) {
+        if (!hasVisibleAssistantContent(completion.content)) {
           throw new Error('模型只生成了一个未完成的发言标签，没有可显示的正文；请重试。')
         }
         const final = await completeMessage(

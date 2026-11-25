@@ -19,8 +19,10 @@ import { stripChatLayoutMarkers } from '../lib/chat-layout'
 import { formatDateTime } from '../lib/format'
 import { SafeMarkdown } from '../lib/safe-markdown'
 import { stripChatArtifacts } from '../lib/safe-markdown-text'
+import { extractStateCard, type StateCardData } from '../lib/state-card'
 import type { ChatMessage } from '../types'
 import { CharacterAvatar } from './avatar'
+import { StateCard } from './state-card'
 
 type MessageItemProps = {
   message: ChatMessage
@@ -53,10 +55,15 @@ export const MessageItem = memo(function MessageItem({
   const [draft, setDraft] = useState(message.content)
   const [saving, setSaving] = useState(false)
   const isUser = message.role === 'user'
-  const displayContent = useMemo(
-    () => (isUser ? message.content : stripChatArtifacts(message.content)),
+  const stateView = useMemo(
+    () =>
+      isUser
+        ? { content: message.content, card: null }
+        : extractStateCard(stripChatArtifacts(message.content)),
     [isUser, message.content],
   )
+  const displayContent = stateView.content
+  const stateCard = stateView.card
   const transcript = useMemo(
     () => (isUser ? null : parseChatTranscript(displayContent, userName)),
     [displayContent, isUser, userName],
@@ -113,6 +120,7 @@ export const MessageItem = memo(function MessageItem({
         isStreaming={isStreaming}
         canRetry={canRetry}
         deferred={deferred}
+        stateCard={stateCard}
         onCopy={onCopy}
         onRetry={onRetry}
       />
@@ -131,6 +139,7 @@ export const MessageItem = memo(function MessageItem({
         isStreaming={isStreaming}
         canRetry={canRetry}
         deferred={deferred}
+        stateCard={stateCard}
         onCopy={onCopy}
         onRetry={onRetry}
       />
@@ -147,6 +156,7 @@ export const MessageItem = memo(function MessageItem({
         isStreaming={isStreaming}
         canRetry={canRetry}
         deferred={deferred}
+        stateCard={stateCard}
         onCopy={onCopy}
         onRetry={onRetry}
       />
@@ -293,6 +303,7 @@ function NarrationMessage({
   isStreaming,
   canRetry,
   deferred,
+  stateCard,
   onCopy,
   onRetry,
 }: {
@@ -303,6 +314,7 @@ function NarrationMessage({
   isStreaming: boolean
   canRetry: boolean
   deferred: boolean
+  stateCard: StateCardData | null
   onCopy: (message: ChatMessage) => void
   onRetry: () => void
 }) {
@@ -314,16 +326,23 @@ function NarrationMessage({
       data-render-deferred={deferred ? 'true' : undefined}
     >
       <div className="mx-auto w-full max-w-3xl">
-        <div className="text-foreground/90">
-          <CenteredNarration
-            content={content}
-            characterName={characterName}
-            fontSize={fontSize}
-            streaming={isStreaming}
-            sanitized
-          />
-          {isStreaming && <span className="stream-caret" aria-hidden="true" />}
-        </div>
+        {content.trim() && (
+          <div className="text-foreground/90">
+            <CenteredNarration
+              content={content}
+              characterName={characterName}
+              fontSize={fontSize}
+              streaming={isStreaming}
+              sanitized
+            />
+            {isStreaming && <span className="stream-caret" aria-hidden="true" />}
+          </div>
+        )}
+        {stateCard && (
+          <div className="mx-auto w-full max-w-3xl px-4 pt-1 sm:px-10">
+            <StateCard data={stateCard} />
+          </div>
+        )}
         {message.status === 'streaming' && !isStreaming && (
           <p className="text-muted-foreground mt-1 px-1 text-xs sm:px-10">这条回复没有正常结束。</p>
         )}
@@ -450,6 +469,7 @@ function TranscriptMessage({
   isStreaming,
   canRetry,
   deferred,
+  stateCard,
   onCopy,
   onRetry,
 }: {
@@ -462,6 +482,7 @@ function TranscriptMessage({
   isStreaming: boolean
   canRetry: boolean
   deferred: boolean
+  stateCard: StateCardData | null
   onCopy: (message: ChatMessage) => void
   onRetry: () => void
 }) {
@@ -591,6 +612,11 @@ function TranscriptMessage({
           )
         })}
         {isStreaming && <span className="stream-caret mx-auto" aria-hidden="true" />}
+        {stateCard && (
+          <div className="pt-0.5">
+            <StateCard data={stateCard} />
+          </div>
+        )}
 
         {message.status === 'streaming' && !isStreaming && (
           <p className="text-muted-foreground mx-auto w-full max-w-3xl px-4 text-xs sm:px-10">

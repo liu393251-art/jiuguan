@@ -17,6 +17,7 @@ import {
 } from '@/features/tavern/hooks/use-tavern'
 import { stripChatLayoutMarkers } from '@/features/tavern/lib/chat-layout'
 import { stripChatArtifacts } from '@/features/tavern/lib/safe-markdown-text'
+import { stripStateCards } from '@/features/tavern/lib/state-card'
 import type { ChatMessage } from '@/features/tavern/types'
 import { cn } from '@/lib/cn'
 
@@ -190,7 +191,7 @@ export function ChatPage() {
   const handleCopy = useCallback(async (message: ChatMessage) => {
     try {
       await navigator.clipboard.writeText(
-        stripChatLayoutMarkers(stripChatArtifacts(message.content)),
+        stripChatLayoutMarkers(stripStateCards(stripChatArtifacts(message.content))),
       )
       toast.success('这条消息已复制')
     } catch (error) {
