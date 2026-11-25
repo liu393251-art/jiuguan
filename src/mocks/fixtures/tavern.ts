@@ -1,16 +1,18 @@
 import { defaultImageGeneration, type TavernState } from '@/features/tavern/types'
 import { createBuiltinComboResources } from '@/features/tavern/lib/builtin-combos'
 import { createBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
+import { createBuiltinCreationLabResources } from '@/features/tavern/lib/builtin-creation-lab'
 
 export function createSeedState(): TavernState {
   const builtinCombos = createBuiltinComboResources()
+  const creationLab = createBuiltinCreationLabResources()
   return {
-    characters: [],
-    loadouts: [],
+    characters: creationLab.characters,
+    loadouts: creationLab.loadouts,
     combos: builtinCombos.combos,
-    presets: builtinCombos.presets,
-    worldBooks: [],
-    regexRules: [createBuiltinChatRegex(), ...builtinCombos.regexRules],
+    presets: [...builtinCombos.presets, ...creationLab.presets],
+    worldBooks: creationLab.worldBooks,
+    regexRules: [createBuiltinChatRegex(), ...builtinCombos.regexRules, ...creationLab.regexRules],
     sessions: [],
     messages: {},
     vectorMemories: [],

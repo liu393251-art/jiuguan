@@ -393,7 +393,7 @@ test('starts with built-in combos and imports only real card fields', async ({ p
   await page.keyboard.press('Escape')
 
   await page.goto('/characters')
-  await expect(page.getByText('角色库还是空的')).toBeVisible()
+  await expect(page.getByText('掌卷 · 四楼书库')).toBeVisible()
   await page.goto('/import')
   await expect(page.getByRole('heading', { name: "li'sug · ATRI Gemini" })).toBeVisible()
   await page.goto('/import?tab=regex')
@@ -423,7 +423,7 @@ test('starts with built-in combos and imports only real card fields', async ({ p
   await expect(page.getByText('导入流程结束')).toBeVisible({ timeout: 10_000 })
   const rules = await page.evaluate(async () => (await fetch('/api/regex-rules')).json())
   const ruleNames = (rules as { items: { name: string }[] }).items.map((rule) => rule.name)
-  expect(ruleNames).toHaveLength(10)
+  expect(ruleNames).toHaveLength(13)
   expect(ruleNames).toContain('微信式对话气泡')
 
   await page.goto('/characters')
@@ -449,7 +449,7 @@ test('starts with built-in combos and imports only real card fields', async ({ p
   await page.goto('/')
   await expect(page.getByText('还没有对话')).toBeVisible()
   await page.goto('/characters')
-  await expect(page.getByText('角色库还是空的')).toBeVisible()
+  await expect(page.getByText('掌卷 · 四楼书库')).toBeVisible()
 })
 
 test('renders only story text from imported state patches on desktop and mobile', async ({
@@ -1542,7 +1542,7 @@ test('migrates the legacy two built-in combos down to one', async ({ page }) => 
   const rules = await page.evaluate(
     async () => (await fetch('/api/regex-rules')).json() as Promise<{ items: { id: string }[] }>,
   )
-  expect(rules.items).toHaveLength(9)
+  expect(rules.items).toHaveLength(12)
   expect(rules.items.some((rule) => rule.id.includes('lisug-atri'))).toBe(false)
 })
 

@@ -4,6 +4,7 @@ import {
   reconcileBuiltinComboResources,
 } from '@/features/tavern/lib/builtin-combos'
 import { BUILTIN_CHAT_REGEX_ID, createBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
+import { reconcileBuiltinCreationLabResources } from '@/features/tavern/lib/builtin-creation-lab'
 import {
   repairIncompleteMessage,
   stripIncompleteSpeakerTag,
@@ -14,6 +15,7 @@ import { createSeedState } from './fixtures/tavern'
 export const TAVERN_STORAGE_KEY = 'xiaobai.tavern.v3'
 const BUILTIN_REGEX_MIGRATION_KEY = 'xiaobai.tavern.builtin-regex.v1'
 const BUILTIN_COMBOS_MIGRATION_KEY = 'xiaobai.tavern.builtin-combos.v2'
+const BUILTIN_CREATION_LAB_MIGRATION_KEY = 'xiaobai.tavern.builtin-creation-lab.v1'
 
 function storageAvailable() {
   return typeof window !== 'undefined' && Boolean(window.localStorage)
@@ -40,6 +42,18 @@ function ensureBuiltinComboMigration(state: TavernState) {
   if (migrated && !hasLegacyBuiltinComboResources(state)) return false
   const changed = reconcileBuiltinComboResources(state)
   window.localStorage.setItem(BUILTIN_COMBOS_MIGRATION_KEY, '1')
+  return changed
+}
+
+function ensureBuiltinCreationLabMigration(state: TavernState) {
+  if (
+    !storageAvailable() ||
+    window.localStorage.getItem(BUILTIN_CREATION_LAB_MIGRATION_KEY) === '1'
+  ) {
+    return false
+  }
+  const changed = reconcileBuiltinCreationLabResources(state)
+  window.localStorage.setItem(BUILTIN_CREATION_LAB_MIGRATION_KEY, '1')
   return changed
 }
 
@@ -71,7 +85,8 @@ export function readTavernState(): TavernState {
         const repairedMessages = repairIncompleteMessages(parsed.data)
         const regexMigrated = ensureBuiltinRegexMigration(parsed.data)
         const combosMigrated = ensureBuiltinComboMigration(parsed.data)
-        if (regexMigrated || combosMigrated || repairedMessages) {
+        const creationLabMigrated = ensureBuiltinCreationLabMigration(parsed.data)
+        if (regexMigrated || combosMigrated || creationLabMigrated || repairedMessages) {
           writeTavernState(parsed.data)
         }
         return parsed.data

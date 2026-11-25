@@ -49,7 +49,8 @@ React + Vite + TypeScript、Tailwind CSS v4、shadcn/ui 风格组件与 Radix pr
 
 - 页面不直接读取 fixtures、`localStorage` 或实现 `fetch`。
 - API 输入输出经过 Zod 校验。
-- 初始状态内置“微信式对话气泡”正则，以及一套预设+正则组合：`li'sug · ATRI Gemini` 预设搭配棠梨预设正则包中的 8 条正则；角色、对话和其他内容仍由用户自行导入或创建。
+- 初始状态内置“微信式对话气泡”正则，一套预设+正则组合：`li'sug · ATRI Gemini` 预设搭配棠梨预设正则包中的 8 条正则，以及“创作工坊”三套可直接开聊的配套；其他角色、对话和内容仍由用户自行导入或创建。
+- 内置创作工坊三套配套：`掌卷 · 四楼书库`（世界书）、`卡匠 · 铸造台`（角色卡）、`调律师 · 旋钮台`（预设）。每套绑定同名创作预设（两份 Hashlib 预设与 `PresetForge v1`）、角色自带世界书和预设里的正则；角色、预设、世界书在角色库与导入区标记为“内置”，配套区可直接开始对话。
 - 组合只保存一个预设和一组正则，正则按整组下拉选择，不拆成单条勾选；不绑定角色、世界书或记忆。可在组合页新建和编辑，新建配套或调整对话设置时可直接套用组合。新建/编辑配套时，正则也按整组选择。导入区把同一来源的正则显示为一个正则包，进入包内可逐条启用、停用或编辑；内置微信气泡也作为独立正则包展示，并可在组合下拉中直接选择。内置组合的预设与正则会作为内置资源出现在导入区。
 - Mock 数据持久化 key 为 `xiaobai.tavern.v3`，可从设置页清空。
 - 导入文件在浏览器内解析，入库仍走 API -> MSW -> mock-db。
@@ -83,6 +84,25 @@ React + Vite + TypeScript、Tailwind CSS v4、shadcn/ui 风格组件与 Radix pr
 | `pnpm test`      | Vitest 单元测试                              |
 | `pnpm test:e2e`  | Playwright 端到端测试（自动启动和回收 Vite） |
 | `pnpm validate`  | lint + typecheck + unit test + build         |
+
+## Android 安装包
+
+```bash
+pnpm build
+pnpm tauri android build --apk
+```
+
+- 需要 JDK 17、Android SDK（platform 36、build-tools 36）、NDK 27 和四个 Android Rust target。
+- 命令会先通过 `beforeBuildCommand` 跑 `pnpm build`，再为 aarch64 / armv7 / i686 / x86_64 编译 Rust 并合并成 universal APK：`src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk`。
+- 发布包需要签名后才能安装到手机：
+
+```bash
+apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android \
+  --key-pass pass:android --ks-key-alias androiddebugkey \
+  --out xiaobai-tavern.apk app-universal-release-unsigned.apk
+```
+
+`artifacts/android/` 里的安装包不纳入版本管理，仅作为本地产物。
 
 ## 验收
 

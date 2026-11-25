@@ -399,7 +399,10 @@ export function LibraryPage() {
                         {book.description}
                       </p>
                     </div>
-                    <Badge variant="outline">{book.entries.length} 条</Badge>
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                      {book.source === 'seed' && <Badge variant="info">内置</Badge>}
+                      <Badge variant="outline">{book.entries.length} 条</Badge>
+                    </div>
                   </div>
                   <div className="mt-3 space-y-1.5">
                     {book.entries.slice(0, 3).map((entry) => (

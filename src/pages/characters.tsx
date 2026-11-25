@@ -193,7 +193,11 @@ function CharacterCard({ character }: { character: Character }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <h2 className="font-display truncate text-lg font-semibold">{character.name}</h2>
-            {character.source === 'import' && <Badge variant="outline">导入</Badge>}
+            {character.source === 'seed' ? (
+              <Badge variant="info">内置</Badge>
+            ) : character.source === 'import' ? (
+              <Badge variant="outline">导入</Badge>
+            ) : null}
           </div>
           <p className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-relaxed">
             {character.tagline.trim() || '未提供'}

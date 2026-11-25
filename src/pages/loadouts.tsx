@@ -54,6 +54,7 @@ import {
   useWorldBooks,
 } from '@/features/tavern/hooks/use-tavern'
 import { BUILTIN_CHAT_REGEX_ID, withBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
+import { isBuiltinCreationLabLoadout } from '@/features/tavern/lib/builtin-creation-lab'
 import {
   buildRegexPacks,
   findRegexPackForRules,
@@ -439,9 +440,12 @@ export function LoadoutsPage() {
                         {character?.name ?? '角色已删除'}
                       </p>
                     </div>
-                    <Badge variant="outline" className="shrink-0">
-                      {memoryLabels[loadout.memoryMode]}
-                    </Badge>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <Badge variant="outline">{memoryLabels[loadout.memoryMode]}</Badge>
+                      {isBuiltinCreationLabLoadout(loadout.id) && (
+                        <Badge variant="info">内置</Badge>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-4 space-y-1.5 text-[11px]">
