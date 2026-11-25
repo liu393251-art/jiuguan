@@ -35,14 +35,14 @@ export const characterSchema = z.object({
 })
 
 export const characterInputSchema = z.object({
-  name: z.string().trim().min(1, '请填写角色名。').max(40, '角色名不超过 40 个字。'),
-  tagline: z.string().trim().max(60, '一句话介绍不超过 60 个字。'),
+  name: z.string().trim().min(1, '请填写角色名。'),
+  tagline: z.string().trim(),
   description: z.string().trim(),
   personality: z.string().trim(),
   scenario: z.string().trim(),
   firstMessage: z.string().trim(),
   exampleDialogue: z.string().trim(),
-  tags: z.array(z.string().trim().min(1)).max(8),
+  tags: z.array(z.string().trim().min(1)),
   avatarTone: z.number().int().min(0).max(4),
 })
 
@@ -57,8 +57,8 @@ export const presetSchema = z.object({
 })
 
 export const presetInputSchema = z.object({
-  name: z.string().trim().min(1, '请填写预设名称。').max(40),
-  description: z.string().trim().max(160),
+  name: z.string().trim().min(1, '请填写预设名称。'),
+  description: z.string().trim(),
   generation: generationSettingsSchema,
   promptSummary: z.string().trim(),
 })
@@ -76,8 +76,8 @@ export const worldEntrySchema = worldEntryInputSchema.extend({
 })
 
 export const worldBookInputSchema = z.object({
-  name: z.string().trim().min(1, '请填写世界书名称。').max(40),
-  description: z.string().trim().max(160),
+  name: z.string().trim().min(1, '请填写世界书名称。'),
+  description: z.string().trim(),
   entries: z.array(worldEntryInputSchema).min(1, '至少添加一个世界书条目。'),
 })
 
@@ -93,7 +93,7 @@ export const worldBookSchema = z.object({
 export const regexScopeSchema = z.enum(['input', 'output', 'both'])
 
 export const regexRuleInputSchema = z.object({
-  name: z.string().trim().min(1, '请填写规则名称。').max(40),
+  name: z.string().trim().min(1, '请填写规则名称。'),
   pattern: z.string().min(1, '请填写正则表达式。'),
   replacement: z.string(),
   flags: z.string(),
@@ -132,7 +132,7 @@ export const loadoutSchema = z.object({
 })
 
 export const loadoutInputSchema = z.object({
-  name: z.string().trim().min(1, '请填写配套名称。').max(40),
+  name: z.string().trim().min(1, '请填写配套名称。'),
   characterId: z.string().min(1, '请选择角色卡。'),
   presetId: z.string().nullable(),
   worldBookIds: z.array(z.string()),

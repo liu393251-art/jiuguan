@@ -23,8 +23,8 @@ import { createCharacter, getErrorMessage, updateCharacter } from '../api'
 import type { Character } from '../types'
 
 const characterFormSchema = z.object({
-  name: z.string().min(1, '请填写角色名。').max(40, '角色名不超过 40 个字。'),
-  tagline: z.string().max(60, '一句话介绍不超过 60 个字。'),
+  name: z.string().min(1, '请填写角色名。'),
+  tagline: z.string(),
   description: z.string().min(1, '请填写人物背景。'),
   personality: z.string(),
   scenario: z.string(),
@@ -105,7 +105,6 @@ function CharacterForm({
       .split(/[,，、]/)
       .map((tag) => tag.trim())
       .filter(Boolean)
-      .slice(0, 8)
     const input = {
       ...values,
       tags,
@@ -181,7 +180,7 @@ function CharacterForm({
           <Textarea {...form.register('exampleDialogue')} className="min-h-20" />
         </Field>
 
-        <Field label="标签" hint="用逗号分隔，最多 8 个">
+        <Field label="标签" hint="用逗号分隔">
           <Input {...form.register('tagsText')} placeholder="治愈，慢热，都市" />
         </Field>
       </div>

@@ -119,9 +119,9 @@ export function HomePage() {
   return (
     <div className="space-y-7">
       <PageHeader
-        eyebrow="小白酒馆 · 今夜"
+        eyebrow="小白酒馆"
         title="对话"
-        description="窗外的声音留给城市。这里只保存你愿意说出口的那一部分。"
+        description="查看、搜索并继续最近的对话。"
         actions={
           <>
             <Button
@@ -231,11 +231,11 @@ export function HomePage() {
       ) : sessions.length === 0 ? (
         <EmptyState
           icon={MessagesSquare}
-          title={search ? '没有找到这段对话' : '今夜还没有开口'}
+          title={search ? '没有找到这段对话' : '还没有对话'}
           description={
             search
               ? '换一个关键词，或者回到全部对话。'
-              : '点“新建聊天”，选一位角色或一套配套，就能开始第一段对话。'
+              : '点击“新建聊天”，选择角色或配套后开始对话。'
           }
           action={
             search ? (
@@ -273,9 +273,9 @@ export function HomePage() {
       <Dialog open={newChatOpen} onOpenChange={setNewChatOpen}>
         <DialogContent className="max-h-[80dvh] max-w-lg">
           <DialogHeader>
-            <DialogTitle>今晚用哪套配套？</DialogTitle>
+            <DialogTitle>选择配套</DialogTitle>
             <DialogDescription>
-              配套已经把角色、预设、世界书、正则和记忆组合好，选一套就能开始。
+              配套包含角色、预设、世界书、正则和记忆，选择一套即可开始对话。
             </DialogDescription>
           </DialogHeader>
           <div className="-mx-1 max-h-[52dvh] space-y-2 overflow-y-auto px-1">
@@ -336,7 +336,7 @@ export function HomePage() {
                     </span>
                   </span>
                   <span className="text-primary shrink-0 text-xs font-semibold">
-                    {startingId === loadout.id ? '正在点亮…' : '开始'}
+                    {startingId === loadout.id ? '正在创建…' : '开始'}
                   </span>
                 </button>
               )

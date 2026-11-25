@@ -34,9 +34,8 @@ function asBoolean(value: unknown, fallback = false) {
   return typeof value === 'boolean' ? value : fallback
 }
 
-function clip(value: string, max = 120) {
-  const normalized = value.replace(/\s+/g, ' ').trim()
-  return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized
+function normalizeText(value: string) {
+  return value.trim()
 }
 
 function hashTone(value: string) {
@@ -130,17 +129,13 @@ function unwrapCharacterCard(raw: unknown): JsonRecord {
 
 function normalizeTags(value: unknown): string[] {
   if (Array.isArray(value)) {
-    return value
-      .map((item) => (typeof item === 'string' ? item.trim() : ''))
-      .filter(Boolean)
-      .slice(0, 8)
+    return value.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean)
   }
   if (typeof value === 'string') {
     return value
       .split(/[,，、]/)
       .map((item) => item.trim())
       .filter(Boolean)
-      .slice(0, 8)
   }
   return []
 }
@@ -193,7 +188,7 @@ function normalizeCharacter(raw: unknown, fileName: string): ImportPayload {
   const avatar = asString(card.avatar)
   const character: CharacterInput & { source: 'import' } = {
     name,
-    tagline: clip(asString(card.tagline ?? card.creator_notes ?? description), 60),
+    tagline: normalizeText(asString(card.tagline ?? card.creator_notes ?? description)),
     description,
     personality: asString(card.personality),
     scenario: asString(card.scenario),
@@ -210,7 +205,7 @@ function normalizeCharacter(raw: unknown, fileName: string): ImportPayload {
     bookEntries.length > 0
       ? {
           name: asString(bookSource?.name) || name,
-          description: clip(asString(bookSource?.description), 160),
+          description: normalizeText(asString(bookSource?.description)),
           entries: bookEntries,
         }
       : undefined
@@ -226,7 +221,7 @@ function normalizePreset(raw: unknown, fileName: string): ImportPayload {
   return {
     name:
       asString(source.name ?? source.preset_name, fileName.replace(/\.[^.]+$/, '')) || '导入的预设',
-    description: clip(asString(source.description ?? source.creator_notes), 160),
+    description: normalizeText(asString(source.description ?? source.creator_notes)),
     generation: {
       temperature: Math.min(2, Math.max(0, asNumber(settings.temperature ?? settings.temp, 0.86))),
       topP: Math.min(1, Math.max(0, asNumber(settings.top_p ?? settings.topP, 0.92))),
@@ -290,10 +285,13 @@ function presetPromptText(source: Record<string, unknown>) {
   )
   const explicit = asString(source.promptSummary ?? source.prompt_summary).trim()
 
-  return [explicit, ...ordered.concat(remaining).map((prompt) => {
-    const title = prompt.name || prompt.identifier
-    return `【${title}】\n${prompt.content.trim()}`
-  })]
+  return [
+    explicit,
+    ...ordered.concat(remaining).map((prompt) => {
+      const title = prompt.name || prompt.identifier
+      return `【${title}】\n${prompt.content.trim()}`
+    }),
+  ]
     .filter(Boolean)
     .join('\n\n')
 }
@@ -309,7 +307,7 @@ function normalizeWorldBook(raw: unknown, fileName: string): ImportPayload {
 
   return {
     name: name || fileName.replace(/\.[^.]+$/, ''),
-    description: clip(asString(isRecord(raw) ? (raw.description ?? raw.notes) : ''), 160),
+    description: normalizeText(asString(isRecord(raw) ? (raw.description ?? raw.notes) : '')),
     entries,
   }
 }

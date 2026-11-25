@@ -40,7 +40,7 @@ export function CharactersPage() {
       <PageHeader
         eyebrow="人物与开场"
         title="角色库"
-        description="每个角色都有自己的灯光、说话方式和没有说完的过去。"
+        description="查看、搜索和管理角色卡与开场设定。"
         actions={
           <>
             <Button variant="outline" asChild>

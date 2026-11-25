@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
+import {
+  characterInputSchema,
+  presetInputSchema,
+  regexRuleInputSchema,
+  worldBookInputSchema,
+} from '../types'
 import { buildImportPayload, parseImportFile } from './import-parser'
 
 function jsonFile(name: string, value: unknown) {
@@ -195,5 +201,80 @@ describe('import parser', () => {
     const parsed = await parseImportFile(file)
     expect(parsed.autoKind).toBe('character')
     expect(parsed.name).toBe('新版角色')
+  })
+
+  it('keeps long character metadata instead of truncating or rejecting it', () => {
+    const name = '长'.repeat(64)
+    const tagline = '旅行'.repeat(42)
+    const description = '角色设定。\n\n第二段也不能丢。'.repeat(20)
+    const tags = Array.from({ length: 12 }, (_, index) => `标签${index + 1}`)
+    const bookName = '书'.repeat(50)
+    const payload = buildImportPayload(
+      'character',
+      {
+        spec: 'chara_card_v3',
+        data: {
+          name,
+          tagline,
+          description,
+          first_mes: '开场。',
+          tags,
+          character_book: {
+            name: bookName,
+            description,
+            entries: [{ keys: ['设定'], content: '完整条目。' }],
+          },
+        },
+      },
+      'long-character.json',
+    )
+
+    expect(payload.name).toBe(name)
+    expect(payload.tagline).toBe(tagline)
+    expect(payload.tags).toEqual(tags)
+    const attachedWorldBook = payload.attachedWorldBook as Record<string, unknown>
+    expect(attachedWorldBook.name).toBe(bookName)
+    expect(attachedWorldBook.description).toBe(description)
+    expect(() => characterInputSchema.parse(payload)).not.toThrow()
+    expect(() => worldBookInputSchema.parse(attachedWorldBook)).not.toThrow()
+  })
+
+  it('keeps long preset, world book, and regex metadata intact', () => {
+    const name = '长'.repeat(64)
+    const description = '说明文字。\n第二行。'.repeat(40)
+
+    const preset = buildImportPayload(
+      'preset',
+      {
+        name,
+        description,
+        temperature: 0.8,
+        prompts: [{ identifier: 'main', name: '主规则', content: '规则正文。' }],
+      },
+      'long-preset.json',
+    )
+    expect(preset.description).toBe(description)
+    expect(() => presetInputSchema.parse(preset)).not.toThrow()
+
+    const worldBook = buildImportPayload(
+      'worldbook',
+      {
+        name,
+        description,
+        entries: [{ keys: ['设定'], content: '完整条目。' }],
+      },
+      'long-worldbook.json',
+    )
+    expect(worldBook.name).toBe(name)
+    expect(worldBook.description).toBe(description)
+    expect(() => worldBookInputSchema.parse(worldBook)).not.toThrow()
+
+    const regex = buildImportPayload(
+      'regex',
+      [{ scriptName: name, findRegex: '旧', replaceString: '新' }],
+      'long-regex.json',
+    ) as { rules: Record<string, unknown>[] }
+    expect(regex.rules[0]?.name).toBe(name)
+    expect(() => regexRuleInputSchema.parse(regex.rules[0])).not.toThrow()
   })
 })
