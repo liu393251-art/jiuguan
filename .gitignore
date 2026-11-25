@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+.tmp
+artifacts
+release
+*.local
+.env
+.DS_Store
+Thumbs.db
+*.tsbuildinfo

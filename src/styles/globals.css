@@ -1,0 +1,322 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import './theme.css';
+
+@layer base {
+  :root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html[data-platform='android'] {
+    --safe-top: max(env(safe-area-inset-top, 0px), 1.5rem);
+    --safe-bottom: max(env(safe-area-inset-bottom, 0px), 0.75rem);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: pan-x pan-y;
+  }
+
+  body {
+    @apply bg-background text-foreground min-h-screen font-sans antialiased;
+    font-feature-settings:
+      'ss01' 1,
+      'cv02' 1,
+      'cv03' 1,
+      'cv04' 1;
+    touch-action: pan-x pan-y;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 24%, transparent);
+  }
+}
+
+.app-grid {
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklch, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to bottom, black, transparent 92%);
+}
+
+.avatar-tone-0 {
+  background-image: linear-gradient(
+    135deg,
+    var(--chart-1),
+    color-mix(in oklch, var(--chart-1) 55%, white)
+  );
+}
+
+.avatar-tone-1 {
+  background-image: linear-gradient(
+    135deg,
+    var(--chart-2),
+    color-mix(in oklch, var(--chart-2) 55%, white)
+  );
+}
+
+.avatar-tone-2 {
+  background-image: linear-gradient(
+    135deg,
+    var(--chart-3),
+    color-mix(in oklch, var(--chart-3) 55%, white)
+  );
+}
+
+.avatar-tone-3 {
+  background-image: linear-gradient(
+    135deg,
+    var(--chart-4),
+    color-mix(in oklch, var(--chart-4) 55%, white)
+  );
+}
+
+.avatar-tone-4 {
+  background-image: linear-gradient(
+    135deg,
+    var(--chart-5),
+    color-mix(in oklch, var(--chart-5) 55%, white)
+  );
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer base {
+  body {
+    line-height: 1.68;
+  }
+}
+
+.font-display {
+  font-family: var(--font-serif);
+}
+
+.paper-canvas {
+  background-image:
+    radial-gradient(
+      circle at 14% -8%,
+      color-mix(in oklch, var(--glow) 42%, transparent),
+      transparent 40%
+    ),
+    radial-gradient(
+      circle at 88% 4%,
+      color-mix(in oklch, var(--primary) 8%, transparent),
+      transparent 35%
+    );
+}
+
+.chat-canvas {
+  background-image:
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--glow) 18%, transparent),
+      transparent 220px
+    ),
+    radial-gradient(
+      circle at 50% 0%,
+      color-mix(in oklch, var(--primary) 5%, transparent),
+      transparent 48%
+    );
+}
+
+.story-prose {
+  font-size: var(--chat-font-size, 15px);
+  line-height: 1.88;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.story-prose > * + * {
+  margin-top: 0.8em;
+}
+
+.story-prose p {
+  margin: 0;
+}
+
+.story-prose h1,
+.story-prose h2,
+.story-prose h3 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.4;
+}
+
+.story-prose h1 {
+  font-size: 1.35em;
+}
+
+.story-prose h2 {
+  font-size: 1.18em;
+}
+
+.story-prose h3 {
+  font-size: 1.05em;
+}
+
+.story-prose blockquote {
+  border-left: 2px solid color-mix(in oklch, var(--primary) 45%, transparent);
+  padding-left: 0.9rem;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.story-prose blockquote p + p {
+  margin-top: 0.4em;
+}
+
+.story-prose ul,
+.story-prose ol {
+  padding-left: 1.25rem;
+}
+
+.story-prose ul {
+  list-style: disc;
+}
+
+.story-prose ol {
+  list-style: decimal;
+}
+
+.story-prose li + li {
+  margin-top: 0.25em;
+}
+
+.story-prose strong {
+  font-weight: 650;
+  color: color-mix(in oklch, var(--foreground) 88%, var(--primary));
+}
+
+.story-prose em {
+  color: var(--muted-foreground);
+}
+
+.story-prose code {
+  border-radius: 0.35rem;
+  background: var(--muted);
+  padding: 0.1em 0.35em;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.story-prose pre {
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  padding: 0.85rem 1rem;
+}
+
+.story-prose pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.story-prose a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message-row {
+  contain: layout paint style;
+}
+
+.message-row[data-render-deferred='true'] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
+
+.safe-bottom {
+  padding-bottom: var(--safe-bottom);
+}
+
+.long-pressable {
+  -webkit-touch-callout: none;
+  touch-action: pan-y;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  html [data-sonner-toaster][data-y-position='top'] {
+    top: calc(var(--safe-top) + 4.5rem);
+  }
+}
+
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.stream-caret {
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 0.16em;
+  translate: 0 0.12em;
+  border-radius: 2px;
+  background: var(--primary);
+  animation: caret-blink 1s steps(1, end) infinite;
+}
