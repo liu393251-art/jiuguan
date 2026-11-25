@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 
 import { expect, test, type Page } from '@playwright/test'
+import { strToU8, zipSync } from 'fflate'
 
 const baselineDir = path.resolve(process.cwd(), 'docs', 'visual-baseline')
 const screenshotDir =
@@ -65,9 +66,23 @@ type CompletionRequest = {
   stop?: string[]
 }
 
+type ImageRequest = {
+  model?: string
+  prompt?: string
+  size?: string
+  quality?: string
+}
+
+const generatedStoryImagePrompt =
+  'cinematic rainy train station, warm station lamps, reflective wet platform, detailed background'
+
+const testImagePng =
+  'iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAYAAADimHc4AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAJFSURBVHhe7dG7bSwxFARRxaN4ZCoQhaXIlMJ7oLGAUI5wP2STnDaOs8YO+9bb+8fXP9N54w+2lgOIOYCYA4g5gJgDiDmAmAOIOYCYA4g5gJgDiDmAmAOIOYCYA4gdEeDn+zON/7WbbQPwkB34jR1sFYAHm4nfVtkiAI+zEt+ymjwAD6LAN60kC8Aj7IBvXEESgMN3wrfOtjwAB++Ib55pWQCOPAE3zLAkAIedhFu6OcAfuKXb9AAcdCJu6jQ1AIecjNu6TAvAATfgxg4OEMSdVVMC8NE34daq9gB88I24ucIBEri5ojUAH3ozbs9ygCRuz3KAJG7PagvABz4Bb5DhAAW8QYYDFPAGGS0B+LAn4S2iHKCIt4hygCLeIsoBiniLKAco4i2iHKCIt4hygCLeIqocgA96Gt4jqhxg4KOehLeIcoAi3iLKAYp4iygHKOItohygiLeIcoAi3iLKAYp4i6iWAAMf9gS8QYYDFPAGGQ5QwBtktAUY+MCbcXuWAyRxe5YDJHF7VmuAgQ+9ETdXOEACN1e0Bxj44Jtwa9WUAAMffgvurHKAAG7sMC3AwAEn47YuUwMMHHIibuo0PcDAQSfhlm4O8Adu6bYkwMBhJ+CGGZYFeOHIHfHNMy0PMHDwTvjW2SQBBg7fAd+4gizAwAMo8W2rSAO88Bgr8S2rbRHghceZid9W2SrAbzxYB35jB9sG+I2HjOB/7eaIADdzADEHEHMAMQcQcwAxBxBzADEHEHMAMQcQcwAxBxBzADEHEHMAMQcQ+1cLzGG6ihlmZQAAAABJRU5ErkJggg=='
+
 async function startOpenAiApi(options: { truncateFirstReply?: boolean } = {}) {
   let completionPayload: CompletionRequest | null = null
   const completionPayloads: CompletionRequest[] = []
+  const imagePayloads: ImageRequest[] = []
   let completionCount = 0
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
@@ -88,6 +103,29 @@ async function startOpenAiApi(options: { truncateFirstReply?: boolean } = {}) {
       return
     }
 
+    if (request.method === 'POST' && request.url === '/v1/images/generations') {
+      let raw = ''
+      request.setEncoding('utf8')
+      request.on('data', (chunk: string) => {
+        raw += chunk
+      })
+      request.on('end', () => {
+        imagePayloads.push(JSON.parse(raw) as ImageRequest)
+        response.writeHead(200, { ...corsHeaders, 'Content-Type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            data: [
+              {
+                b64_json: testImagePng,
+                revised_prompt: '雨夜车站与暖色站灯',
+              },
+            ],
+          }),
+        )
+      })
+      return
+    }
+
     if (request.method === 'POST' && request.url === '/v1/chat/completions') {
       let raw = ''
       request.setEncoding('utf8')
@@ -103,6 +141,18 @@ async function startOpenAiApi(options: { truncateFirstReply?: boolean } = {}) {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
         })
+
+        if (
+          completionPayload.messages?.[0]?.content.includes('expert image-generation prompt writer')
+        ) {
+          response.write(
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: generatedStoryImagePrompt } }],
+            })}\n\n`,
+          )
+          response.end('data: [DONE]\n\n')
+          return
+        }
 
         if (options.truncateFirstReply && completionCount === 1) {
           response.write(
@@ -183,6 +233,7 @@ async function startOpenAiApi(options: { truncateFirstReply?: boolean } = {}) {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     getCompletionPayload: () => completionPayloads.at(-1) ?? completionPayload,
     getCompletionPayloads: () => completionPayloads,
+    getImagePayloads: () => imagePayloads,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
@@ -223,6 +274,18 @@ async function configureTestApi(page: Page, baseUrl: string) {
   await page.getByLabel('你的人设').fill('和角色同班的高二学生。')
   await page.getByRole('button', { name: '保存身份' }).click()
   await expect(page.getByText('身份与记忆设置已保存')).toBeVisible()
+}
+
+async function configureTestImageApi(page: Page, baseUrl: string) {
+  await page.goto('/settings?section=images')
+  await page.getByLabel('Base URL').fill(baseUrl)
+  await page.getByLabel('模型').fill('image-model')
+  await page.getByLabel('API Key').fill('sk-image-e2e')
+  await page.getByLabel('默认尺寸').selectOption('1024x1024')
+  await page.getByLabel('默认质量').selectOption('high')
+  await page.getByRole('button', { name: '保存生图 API' }).click()
+  await expect(page.getByText('生图 API 已保存')).toBeVisible()
+  await expect(page.getByText('已配置', { exact: true })).toBeVisible()
 }
 
 async function firstCharacter(page: Page): Promise<TestCharacter> {
@@ -316,28 +379,29 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
   await page.evaluate(() => window.localStorage.clear())
   await page.reload()
-  await expect(page.getByRole('heading', { name: '对话' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
   await page.evaluate(async () => {
     await fetch('/api/vector-memories', { method: 'DELETE' })
   })
 })
 
-test('starts empty and imports only real card fields', async ({ page }) => {
-  await expect(page.getByText('今夜还没有开口')).toBeVisible()
+test('starts with built-in combos and imports only real card fields', async ({ page }) => {
+  test.setTimeout(45_000)
+  await expect(page.getByText('还没有对话')).toBeVisible()
   await page.getByRole('button', { name: '新建聊天' }).last().click()
-  await expect(page.getByRole('dialog').getByText('今晚用哪套配套？')).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '选择配套' })).toBeVisible()
   await page.keyboard.press('Escape')
 
   await page.goto('/characters')
   await expect(page.getByText('角色库还是空的')).toBeVisible()
   await page.goto('/import')
-  await expect(page.getByText('还没有预设')).toBeVisible()
+  await expect(page.getByRole('heading', { name: "li'sug · ATRI Gemini" })).toBeVisible()
   await page.goto('/import?tab=regex')
-  await expect(page.getByText('微信式对话气泡')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '微信式对话气泡' })).toBeVisible()
   await page.goto('/settings')
   await expect(page.getByText('还没有保存的 API 连接')).toBeVisible()
   await page.getByRole('button', { name: '新增连接' }).click()
-  await expect(page.getByLabel('API Key')).toHaveValue('')
+  await expect(page.locator('#api-profile-key')).toHaveValue('')
 
   await page.goto('/import/files')
   await expect(page.getByRole('heading', { name: '导入文件' })).toBeVisible()
@@ -359,7 +423,7 @@ test('starts empty and imports only real card fields', async ({ page }) => {
   await expect(page.getByText('导入流程结束')).toBeVisible({ timeout: 10_000 })
   const rules = await page.evaluate(async () => (await fetch('/api/regex-rules')).json())
   const ruleNames = (rules as { items: { name: string }[] }).items.map((rule) => rule.name)
-  expect(ruleNames).toHaveLength(2)
+  expect(ruleNames).toHaveLength(10)
   expect(ruleNames).toContain('微信式对话气泡')
 
   await page.goto('/characters')
@@ -383,7 +447,7 @@ test('starts empty and imports only real card fields', async ({ page }) => {
   await dialog.getByRole('button', { name: '确认清空' }).click()
   await expect(page.getByText('本地数据已清空')).toBeVisible()
   await page.goto('/')
-  await expect(page.getByText('今夜还没有开口')).toBeVisible()
+  await expect(page.getByText('还没有对话')).toBeVisible()
   await page.goto('/characters')
   await expect(page.getByText('角色库还是空的')).toBeVisible()
 })
@@ -455,6 +519,79 @@ test('renders only story text from imported state patches on desktop and mobile'
   await expect(page.getByText(/安全文本渲染 · 最近 40 条分批加载/)).toBeVisible()
 })
 
+test('renders expandable character state cards without leaking markers into messages', async ({
+  page,
+}) => {
+  await importTestCard(page)
+  const character = await firstCharacter(page)
+  const session = (await page.evaluate(
+    async ({ characterId }) => {
+      const response = await fetch('/api/test/chats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          characterId,
+          title: '状态卡验证',
+          messages: [
+            {
+              role: 'assistant',
+              content:
+                '雨水顺着屋檐连成一条线。\n\n【测试旅人】\n「先把门关上。」\n\n她把伞靠在墙边，没有立刻往前走。\n\n[[状态]]\n测试旅人｜女｜27｜临时旅伴\n好感度：42（+3）\n欲望值：18\n堕落度：6\n备注：她开始愿意把后背留给身边的人。\n\n周既明｜男｜38｜调查员\n仇恨值：73（-2）\n信任值：21\n戒备值：88\n[[/状态]]',
+            },
+            {
+              role: 'assistant',
+              content:
+                '雨停之后，走廊尽头的灯还亮着。\n\n[[状态]]\n测试旅人｜女｜27｜临时旅伴\n好感度：45（+3）\n欲望值：20（+2）\n堕落度：6\n[[/状态]]',
+            },
+          ],
+        }),
+      })
+      if (!response.ok) throw new Error(await response.text())
+      return response.json()
+    },
+    { characterId: character.id },
+  )) as TestSession
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await page.goto(`/chat/${session.id}`)
+
+    const cards = page.getByTestId('state-card')
+    await expect(cards).toHaveCount(2)
+    await expect(cards.first()).toBeVisible()
+    await expect(cards.first()).toHaveAttribute('data-state', 'collapsed')
+    await expect(cards.first().getByTestId('state-participant-周既明')).toBeHidden()
+
+    const chatText = await page.getByTestId('message-scroll').innerText()
+    expect(chatText).not.toContain('[[状态]]')
+    expect(chatText).not.toContain('[[/状态]]')
+    expect(chatText).not.toContain('好感度：42')
+
+    await cards.first().getByTestId('state-card-toggle').click()
+    await expect(cards.first()).toHaveAttribute('data-state', 'expanded')
+    await expect(cards.first().getByTestId('state-participant-周既明')).toBeVisible()
+    await expect(cards.first().getByRole('progressbar', { name: '好感度' })).toHaveAttribute(
+      'aria-valuenow',
+      '42',
+    )
+    await expect(cards.first().getByText('+3')).toBeVisible()
+    await expect(cards.first().getByText('周既明', { exact: true }).first()).toBeVisible()
+
+    await cards.first().getByTestId('state-card-toggle').click()
+    await expect(cards.first()).toHaveAttribute('data-state', 'collapsed')
+
+    const overflow = await page.evaluate(
+      () =>
+        Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) -
+        window.innerWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(1)
+  }
+})
+
 test('sends the selected real API request and keeps the streamed reply after reload', async ({
   page,
 }) => {
@@ -521,6 +658,103 @@ test('sends the selected real API request and keeps the streamed reply after rel
     const mobileCompletionPayload = api.getCompletionPayload()
     expect(mobileCompletionPayload?.messages?.[0]?.content).toContain('林澈')
     expect(mobileCompletionPayload?.messages?.at(-1)?.content).toBe('手机端也记得我的名字吗？')
+  } finally {
+    await api.close()
+  }
+})
+
+test('generates an image from a separate API and keeps it after reload', async ({ page }) => {
+  test.setTimeout(60_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const api = await startOpenAiApi()
+
+  try {
+    await configureTestImageApi(page, api.baseUrl)
+    await importTestCard(page)
+    const character = await firstCharacter(page)
+    const session = await createChat(page, character.id)
+    const prompt = '雨夜车站，暖色站灯，电影感构图'
+
+    await page.goto(`/chat/${session.id}`)
+    await page.getByRole('button', { name: '生成图片', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading', { name: '为「测试旅人」生成图片' })).toBeVisible()
+    await dialog.getByLabel('画面提示词').fill(prompt)
+    await dialog.getByRole('button', { name: '生成图片' }).click()
+    await expect(dialog.getByRole('button', { name: '发送到对话' })).toBeVisible({
+      timeout: 20_000,
+    })
+    await expect(dialog.getByRole('img', { name: prompt })).toBeVisible()
+    await dialog.getByRole('button', { name: '发送到对话' }).click()
+
+    await expect(page.getByText('图片已发送到当前对话')).toBeVisible()
+    await expect(page.locator('[data-message-style="image"]')).toBeVisible()
+    await expect(page.getByRole('img', { name: prompt })).toBeVisible()
+    expect(api.getImagePayloads()).toEqual([
+      {
+        model: 'image-model',
+        prompt,
+        n: 1,
+        size: '1024x1024',
+        quality: 'high',
+      },
+    ])
+
+    await page.reload()
+    await expect(page.locator('[data-message-style="image"]')).toBeVisible()
+    await expect(page.getByRole('img', { name: prompt })).toBeVisible()
+  } finally {
+    await api.close()
+  }
+})
+
+test('uses a selected message verbatim and writes story prompts with the chat API', async ({
+  page,
+}) => {
+  test.setTimeout(70_000)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const api = await startOpenAiApi()
+
+  try {
+    await configureTestApi(page, api.baseUrl)
+    await configureTestImageApi(page, api.baseUrl)
+    await importTestCard(page)
+    const character = await firstCharacter(page)
+    const session = await createChat(page, character.id)
+
+    await page.goto(`/chat/${session.id}`)
+    await page.getByLabel('消息内容').fill('今晚的车还会来吗？')
+    await page.getByRole('button', { name: '发送消息' }).click()
+    await expect(page.getByText('她其实也有些期待')).toBeVisible({ timeout: 20_000 })
+
+    const userMessage = page.locator('article[aria-label="你的消息"]').last()
+    await userMessage.getByRole('button', { name: '用这条消息生成图片' }).click()
+    let dialog = page.getByRole('dialog')
+    await expect(dialog.getByLabel('画面来源')).toHaveValue('message')
+    await expect(dialog.getByLabel('画面提示词')).toHaveValue('今晚的车还会来吗？')
+    await dialog.getByRole('button', { name: '生成图片' }).click()
+    await expect(dialog.getByRole('button', { name: '发送到对话' })).toBeVisible({
+      timeout: 20_000,
+    })
+    expect(api.getImagePayloads()[0]?.prompt).toBe('今晚的车还会来吗？')
+
+    await dialog.getByRole('button', { name: '取消' }).click()
+    await page.getByRole('button', { name: '生成图片', exact: true }).click()
+    dialog = page.getByRole('dialog')
+    await dialog.getByLabel('画面来源').selectOption('story')
+    await dialog.getByRole('button', { name: '只生成提示词' }).click()
+    await expect(dialog.getByLabel('画面提示词')).toHaveValue(generatedStoryImagePrompt, {
+      timeout: 20_000,
+    })
+    const promptRequest = api.getCompletionPayload()
+    expect(promptRequest?.messages?.[0]?.content).toContain('image-generation prompt writer')
+    expect(promptRequest?.messages?.[1]?.content).toContain('今晚的车还会来吗')
+
+    await dialog.getByRole('button', { name: '生成图片' }).click()
+    await expect(dialog.getByRole('button', { name: '发送到对话' })).toBeVisible({
+      timeout: 20_000,
+    })
+    expect(api.getImagePayloads()[1]?.prompt).toBe(generatedStoryImagePrompt)
   } finally {
     await api.close()
   }
@@ -873,6 +1107,7 @@ test('keeps mobile pages inside 390px and key controls reachable', async ({ page
   for (const route of [
     '/',
     '/loadouts',
+    '/loadouts?tab=combos',
     '/characters',
     '/settings',
     `/chat/${session.id}`,
@@ -909,7 +1144,7 @@ test('keeps mobile pages inside 390px and key controls reachable', async ({ page
 
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await page.waitForTimeout(150)
-  const preview = await page.getByText(/茶还热/).boundingBox()
+  const preview = await page.getByText(/预览聊天字号/).boundingBox()
   const savebar = await page.getByTestId('chat-settings-savebar').boundingBox()
   expect(preview).not.toBeNull()
   expect(savebar).not.toBeNull()
@@ -924,7 +1159,7 @@ test('keeps mobile pages inside 390px and key controls reachable', async ({ page
   await expect(menu.getByRole('link', { name: /设置/ })).toBeVisible()
   await expect(menu.getByRole('link', { name: /导入/ })).toBeVisible()
   await menu.getByRole('button', { name: '新建聊天' }).click()
-  await expect(page.getByRole('dialog').getByText('今晚用哪套配套？')).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '选择配套' })).toBeVisible()
 })
 
 test('keeps mobile navigation and long dialogs inside system insets', async ({ page }) => {
@@ -953,7 +1188,7 @@ test('keeps mobile navigation and long dialogs inside system insets', async ({ p
   expect(overflow).toBeLessThanOrEqual(1)
 
   const headerBox = await page.locator('header.fixed').boundingBox()
-  const titleBox = await page.getByRole('heading', { name: '对话' }).boundingBox()
+  const titleBox = await page.getByRole('heading', { name: '对话', exact: true }).boundingBox()
   expect(headerBox).not.toBeNull()
   expect(titleBox).not.toBeNull()
   expect((titleBox?.y ?? 0) + 1).toBeGreaterThanOrEqual(
@@ -1048,7 +1283,7 @@ test('keeps long loadout cards inside narrow mobile screens', async ({ page }) =
 
 test('locks page scale without blocking normal touch scrolling', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: '对话' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
   const viewport = await page.locator('meta[name="viewport"]').getAttribute('content')
   expect(viewport).toContain('user-scalable=no')
   expect(viewport).toContain('maximum-scale=1.0')
@@ -1203,6 +1438,209 @@ test('persists vector memories in IndexedDB and migrates old localStorage entrie
   }
 })
 
+test('shows built-in combos and applies a preset plus regex to a chat', async ({ page }) => {
+  await importTestCard(page)
+
+  await page.goto('/loadouts?tab=combos')
+  await expect(page.getByRole('heading', { name: '棠梨 · ATRI Gemini' })).toBeVisible()
+  const builtinCombos = await page.evaluate(
+    async () =>
+      (await fetch('/api/combos')).json() as Promise<{ items: { id: string; name: string }[] }>,
+  )
+  expect(builtinCombos.items).toHaveLength(1)
+
+  const comboCard = page
+    .locator('[data-slot="card"]')
+    .filter({ hasText: '棠梨 · ATRI Gemini' })
+    .first()
+  await expect(comboCard.getByRole('button', { name: /新建配套/ })).toHaveCount(0)
+  await expect(comboCard.getByRole('button', { name: /编辑/ })).toBeVisible()
+  await comboCard.getByRole('button', { name: /编辑/ }).click()
+  const comboEditor = page.getByRole('dialog')
+  await expect(comboEditor.getByLabel('选择组合正则')).toHaveValue('builtin-regex-pack-tangli')
+  await comboEditor.getByRole('button', { name: '取消' }).click()
+
+  await page.goto('/loadouts')
+  await page.getByRole('button', { name: '新建配套' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('heading', { name: '新建配套' })).toBeVisible()
+  await dialog.getByLabel('选择组合套用到配套').selectOption({ label: '棠梨 · ATRI Gemini' })
+  await expect(dialog.getByLabel('选择配套正则')).toHaveValue('builtin-regex-pack-tangli')
+  expect(await dialog.getByLabel('选择配套预设').inputValue()).toBeTruthy()
+  await dialog.getByRole('button', { name: '取消' }).click()
+
+  const character = await firstCharacter(page)
+  const session = await createChat(page, character.id)
+  await page.goto(`/chat/${session.id}/settings`)
+  await page.getByLabel('套用组合').selectOption({ label: '棠梨 · ATRI Gemini' })
+  await page.getByRole('button', { name: '保存设置' }).click()
+  await expect(page).toHaveURL(new RegExp(`/chat/${session.id}$`))
+
+  const saved = (await page.evaluate(
+    async (id) => (await fetch(`/api/chats/${id}`)).json(),
+    session.id,
+  )) as {
+    presetId: string | null
+    generation: { temperature: number }
+    regexRuleIds: string[]
+  }
+  expect(saved.presetId).toBeTruthy()
+  expect(saved.generation.temperature).toBeCloseTo(1.1)
+  expect(saved.regexRuleIds).toHaveLength(9)
+
+  const sent = (await page.evaluate(async (id) => {
+    const response = await fetch(`/api/chats/${id}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '测试输入不会被组合正则清空' }),
+    })
+    return {
+      status: response.status,
+      body: (await response.json()) as { userMessage?: { content?: string } },
+    }
+  }, session.id)) as { status: number; body: { userMessage?: { content?: string } } }
+  expect(sent.status).toBe(201)
+  expect(sent.body.userMessage?.content).toBe('测试输入不会被组合正则清空')
+})
+
+test('migrates the legacy two built-in combos down to one', async ({ page }) => {
+  const state = await page.evaluate(() =>
+    JSON.parse(window.localStorage.getItem('xiaobai.tavern.v3') ?? 'null'),
+  )
+  state.combos = [
+    {
+      ...state.combos[0],
+      id: 'builtin-combo-lisug-atri-gemini',
+      name: "li'sug · ATRI Gemini",
+    },
+    {
+      ...state.combos[0],
+      id: 'builtin-combo-tangli-regex',
+      name: '棠梨预设正则包',
+      presetId: null,
+    },
+  ]
+  state.regexRules.push({
+    ...state.regexRules[1],
+    id: 'builtin-regex-lisug-atri-1',
+    name: "【li'sug】thinking",
+  })
+
+  await page.evaluate((legacyState) => {
+    window.localStorage.setItem('xiaobai.tavern.v3', JSON.stringify(legacyState))
+    window.localStorage.setItem('xiaobai.tavern.builtin-combos.v1', '1')
+  }, state)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
+
+  const combos = await page.evaluate(
+    async () =>
+      (await fetch('/api/combos')).json() as Promise<{ items: { id: string; name: string }[] }>,
+  )
+  expect(combos.items).toHaveLength(1)
+  expect(combos.items[0].name).toBe('棠梨 · ATRI Gemini')
+  const rules = await page.evaluate(
+    async () => (await fetch('/api/regex-rules')).json() as Promise<{ items: { id: string }[] }>,
+  )
+  expect(rules.items).toHaveLength(9)
+  expect(rules.items.some((rule) => rule.id.includes('lisug-atri'))).toBe(false)
+})
+
+test('creates, edits, and deletes a combo from the combo tab', async ({ page }) => {
+  await page.goto('/loadouts?tab=combos')
+  await page.getByRole('button', { name: '新建组合' }).click()
+  const editor = page.getByRole('dialog')
+  await editor.getByPlaceholder('例如：ATRI Gemini + 去油').fill('测试组合')
+  await editor.getByLabel('选择组合预设').selectOption({ label: "li'sug · ATRI Gemini" })
+  await editor.getByLabel('选择组合正则').selectOption({ label: '棠梨预设正则包（8 条）' })
+  await editor.getByRole('button', { name: '保存组合' }).click()
+  await expect(page.getByRole('heading', { name: '测试组合' })).toBeVisible()
+  const createdCard = page.locator('[data-slot="card"]').filter({ hasText: '测试组合' }).first()
+  await expect(createdCard.getByText(/棠梨预设正则包 · 8 条/)).toBeVisible()
+
+  await page.getByRole('button', { name: '编辑 测试组合' }).click()
+  const editDialog = page.getByRole('dialog')
+  await editDialog.getByPlaceholder('例如：ATRI Gemini + 去油').fill('测试组合二')
+  await editDialog.getByRole('button', { name: '保存组合' }).click()
+  await expect(page.getByRole('heading', { name: '测试组合二' })).toBeVisible()
+
+  await page.getByRole('button', { name: '删除 测试组合二' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '确认删除' }).click()
+  await expect(page.getByRole('heading', { name: '测试组合二' })).toHaveCount(0)
+})
+
+test('groups an imported regex pack and toggles one rule inside it', async ({ page }) => {
+  await importFile(page, 'regex-pack.json', {
+    name: '测试正则包',
+    rules: [
+      ...regexFile,
+      {
+        scriptName: '压缩空格',
+        findRegex: '/ {2,}/g',
+        replaceString: ' ',
+      },
+    ],
+  })
+
+  await page.goto('/import?tab=regex')
+  const importedCard = page.getByTestId('regex-pack-card').filter({ hasText: '测试正则包' })
+  await expect(importedCard).toHaveCount(1)
+  await expect(importedCard.getByText('2 条规则 · 2 条启用')).toBeVisible()
+  await expect(importedCard.getByTestId('regex-pack-rule')).toHaveCount(0)
+
+  await importedCard.getByRole('button', { name: '管理正则包 测试正则包' }).click()
+  const manager = page.getByRole('dialog')
+  await expect(manager.getByRole('heading', { name: '测试正则包' })).toBeVisible()
+  await expect(manager.getByTestId('regex-pack-rule')).toHaveCount(2)
+
+  await manager.getByRole('button', { name: '编辑' }).first().click()
+  const editDialog = page
+    .getByRole('dialog')
+    .filter({ has: page.getByRole('heading', { name: '编辑正则' }) })
+  await expect(editDialog).toBeVisible()
+  await editDialog.locator('input').first().fill('清理省略号（已编辑）')
+  await editDialog
+    .locator('[data-slot="dialog-footer"]')
+    .getByRole('button', { name: '保存正则' })
+    .click()
+  await expect(manager.getByText('清理省略号（已编辑）')).toBeVisible()
+
+  await manager.getByLabel('停用规则 清理省略号（已编辑）').click()
+  await expect(manager.getByLabel('启用规则 清理省略号（已编辑）')).toBeVisible()
+  await expect
+    .poll(async () => {
+      const response = (await page.evaluate(async () =>
+        (await fetch('/api/regex-rules')).json(),
+      )) as { items: { name: string; enabled: boolean }[] }
+      return response.items.find((rule) => rule.name === '清理省略号（已编辑）')?.enabled
+    })
+    .toBe(false)
+
+  await manager.locator('[data-slot="dialog-footer"]').getByRole('button', { name: '关闭' }).click()
+  await expect(importedCard.getByText('2 条规则 · 1 条启用')).toBeVisible()
+})
+
+test('offers the built-in chat bubble regex when creating a combo', async ({ page }) => {
+  await page.goto('/loadouts?tab=combos')
+  await page.getByRole('button', { name: '新建组合' }).click()
+  const editor = page.getByRole('dialog')
+  await editor.getByPlaceholder('例如：ATRI Gemini + 去油').fill('气泡组合')
+  const regexSelect = editor.getByLabel('选择组合正则')
+  await expect(regexSelect.locator('option', { hasText: '微信式对话气泡' })).toHaveCount(1)
+  await regexSelect.selectOption({ label: '微信式对话气泡（内置 · 1 条）' })
+  await editor.getByRole('button', { name: '保存组合' }).click()
+
+  const comboCard = page.locator('[data-slot="card"]').filter({ hasText: '气泡组合' }).first()
+  await expect(page.getByRole('heading', { name: '气泡组合' })).toBeVisible()
+  await expect(comboCard.getByText('微信式对话气泡（内置）')).toBeVisible()
+  const combo = (await page.evaluate(async () => (await fetch('/api/combos')).json())) as {
+    items: { name: string; regexRuleIds: string[] }[]
+  }
+  expect(combo.items.find((item) => item.name === '气泡组合')?.regexRuleIds).toEqual([
+    'regex-chat-bubbles',
+  ])
+})
+
 test('imports a character into a default loadout and starts from home', async ({ page }) => {
   await importTestCard(page)
 
@@ -1212,13 +1650,217 @@ test('imports a character into a default loadout and starts from home', async ({
 
   await page.goto('/')
   await page.getByRole('button', { name: '新建聊天' }).first().click()
-  await expect(page.getByRole('dialog').getByText('今晚用哪套配套？')).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('heading', { name: '选择配套' })).toBeVisible()
   await page
     .getByRole('dialog')
     .getByRole('button', { name: /测试旅人 · 默认配套/ })
     .click()
   await expect(page).toHaveURL(/\/chat\//)
   await expect(page.getByText('你也在等这班车吗？').first()).toBeVisible()
+})
+
+test('imports a long tagline without truncation', async ({ page }) => {
+  const name = '长简介旅人'
+  const tagline = '旅行'.repeat(42)
+  await importFile(page, 'long-tagline-card.json', {
+    ...testCard,
+    data: { ...testCard.data, name, tagline },
+  })
+
+  const characters = await page.evaluate(async () => {
+    const response = await fetch('/api/characters')
+    const data = (await response.json()) as {
+      items: { name: string; tagline: string }[]
+    }
+    return data.items
+  })
+
+  expect(characters.find((character) => character.name === name)?.tagline).toBe(tagline)
+})
+
+test('imports a ZIP pack as one bound loadout', async ({ page }) => {
+  const pack = zipSync({
+    '测试配套/角色卡.json': strToU8(JSON.stringify(testCard)),
+    '测试配套/预设.json': strToU8(
+      JSON.stringify({
+        name: '测试配套预设',
+        settings: {
+          temperature: 0.88,
+          top_p: 0.92,
+          openai_max_tokens: 900,
+        },
+        prompts: [
+          {
+            identifier: 'main',
+            name: '主规则',
+            content: '先让场景发生，再让角色说话。',
+            enabled: true,
+          },
+        ],
+        prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }],
+      }),
+    ),
+    '测试配套/世界书.json': strToU8(
+      JSON.stringify({
+        name: '测试配套世界',
+        entries: [{ keys: ['站台'], content: '站台的钟慢三分钟。', constant: true }],
+      }),
+    ),
+    '测试配套/正则.json': strToU8(JSON.stringify({ name: '测试配套正则', rules: regexFile })),
+    '测试配套/manifest.json': strToU8(
+      JSON.stringify({
+        name: '测试 ZIP 配套',
+        description: '从导入配套页上传。',
+        memoryMode: 'compressed',
+      }),
+    ),
+    '测试配套/README.txt': strToU8('说明文件不参与导入。'),
+  })
+
+  await page.goto('/import/files?pack=1')
+  await expect(page.getByRole('heading', { name: '导入配套' })).toBeVisible()
+  await page.locator('input[type="file"]').setInputFiles({
+    name: '测试配套.zip',
+    mimeType: 'application/zip',
+    buffer: Buffer.from(pack),
+  })
+  await expect(page.getByText('测试配套.zip')).toBeVisible()
+  await expect(page.getByText(/配套 · 角色 1 · 预设 1 · 世界书 2 · 正则 1/)).toBeVisible()
+  await page.getByRole('button', { name: /开始导入/ }).click()
+  await expect(page.getByText('导入流程结束')).toBeVisible({ timeout: 10_000 })
+
+  const imported = await page.evaluate(async () => {
+    const read = async (url: string) => (await fetch(url)).json() as Promise<{ items: unknown[] }>
+    return {
+      characters: await read('/api/characters'),
+      presets: await read('/api/presets'),
+      worldbooks: await read('/api/worldbooks'),
+      regexRules: await read('/api/regex-rules'),
+      loadouts: await read('/api/loadouts'),
+    }
+  })
+
+  const characters = imported.characters.items as { id: string; name: string }[]
+  const presets = imported.presets.items as { id: string; name: string }[]
+  const worldbooks = imported.worldbooks.items as { id: string; name: string }[]
+  const regexRules = imported.regexRules.items as { id: string; name: string }[]
+  const loadouts = imported.loadouts.items as {
+    id: string
+    name: string
+    characterId: string
+    presetId: string | null
+    worldBookIds: string[]
+    regexRuleIds: string[]
+    memoryMode: string
+  }[]
+
+  expect(characters.map((item) => item.name)).toContain('测试旅人')
+  expect(presets.map((item) => item.name)).toContain('测试配套预设')
+  expect(worldbooks.map((item) => item.name)).toEqual(
+    expect.arrayContaining(['测试车站', '测试配套世界']),
+  )
+  expect(regexRules.map((item) => item.name)).toEqual(
+    expect.arrayContaining(['微信式对话气泡', '清理省略号']),
+  )
+
+  const loadout = loadouts.find((item) => item.name === '测试 ZIP 配套')
+  expect(loadout).toBeTruthy()
+  expect(loadout?.presetId).toBe(presets.find((item) => item.name === '测试配套预设')?.id)
+  expect(loadout?.worldBookIds).toHaveLength(2)
+  expect(loadout?.regexRuleIds).toHaveLength(2)
+  expect(loadout?.memoryMode).toBe('compressed')
+
+  await page.goto('/loadouts')
+  await expect(page.getByRole('heading', { name: '测试 ZIP 配套' })).toBeVisible()
+  await page.getByRole('button', { name: '开始对话' }).first().click()
+  await expect(page).toHaveURL(/\/chat\//)
+  await expect(page.getByText('你也在等这班车吗？').first()).toBeVisible()
+})
+
+test('imports the bundled open narrative pack and renders its opening state card', async ({
+  page,
+}) => {
+  await page.goto('/import/files?pack=1')
+  await expect(page.getByRole('heading', { name: '导入配套' })).toBeVisible()
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles(path.resolve(process.cwd(), 'packs', 'wujie-station-open-pack.zip'))
+  await expect(page.getByText('wujie-station-open-pack.zip')).toBeVisible()
+  await expect(page.getByText(/配套 · 角色 1 · 预设 1 · 世界书 3 · 正则 9/)).toBeVisible()
+  await page.getByRole('button', { name: /开始导入/ }).click()
+  await expect(page.getByText('导入流程结束')).toBeVisible({ timeout: 10_000 })
+
+  const imported = await page.evaluate(async () => {
+    const read = async (url: string) => (await fetch(url)).json() as Promise<{ items: unknown[] }>
+    return {
+      characters: await read('/api/characters'),
+      presets: await read('/api/presets'),
+      worldbooks: await read('/api/worldbooks'),
+      regexRules: await read('/api/regex-rules'),
+      loadouts: await read('/api/loadouts'),
+    }
+  })
+
+  const characters = imported.characters.items as { id: string; name: string }[]
+  const presets = imported.presets.items as { id: string; name: string }[]
+  const worldbooks = imported.worldbooks.items as { id: string; name: string }[]
+  const regexRules = imported.regexRules.items as { id: string; name: string }[]
+  const loadouts = imported.loadouts.items as {
+    id: string
+    name: string
+    characterId: string
+    presetId: string | null
+    worldBookIds: string[]
+    regexRuleIds: string[]
+  }[]
+
+  expect(characters.map((item) => item.name)).toContain('闻灯')
+  expect(presets.map((item) => item.name)).toContain('无界叙事引擎')
+  expect(worldbooks.map((item) => item.name)).toEqual(
+    expect.arrayContaining(['无界驿站 · 总纲', '无界驿站 · 人物簿', '当前篇 · 雾港来信']),
+  )
+  expect(regexRules.map((item) => item.name)).toEqual(
+    expect.arrayContaining(['微信式对话气泡', '状态开头归一', '好感度归一']),
+  )
+
+  const loadout = loadouts.find((item) => item.name === '无界驿站 · 开放叙事配套')
+  expect(loadout?.worldBookIds).toHaveLength(3)
+  expect(loadout?.regexRuleIds).toHaveLength(10)
+
+  await page.goto('/loadouts')
+  await page.getByRole('button', { name: '开始对话' }).first().click()
+  await expect(page).toHaveURL(/\/chat\//)
+  await expect(page.getByText('无界驿站今夜停在雾港旧码头。')).toBeVisible()
+  await expect(page.getByTestId('state-card')).toBeVisible()
+  await expect(
+    page.getByTestId('state-card').getByText('闻灯', { exact: true }).first(),
+  ).toBeVisible()
+  await expect(
+    page.getByTestId('state-card').getByText('周既明', { exact: true }).first(),
+  ).toBeVisible()
+})
+
+test('blocks a ZIP pack without a character card', async ({ page }) => {
+  const pack = zipSync({
+    '预设.json': strToU8(
+      JSON.stringify({
+        name: '缺少角色的预设',
+        temperature: 0.8,
+        prompts: [{ identifier: 'main', content: '测试。' }],
+        prompt_order: [{ order: [{ identifier: 'main', enabled: true }] }],
+      }),
+    ),
+  })
+
+  await page.goto('/import/files?pack=1')
+  await page.locator('input[type="file"]').setInputFiles({
+    name: '缺少角色.zip',
+    mimeType: 'application/zip',
+    buffer: Buffer.from(pack),
+  })
+  await expect(page.getByText('无法导入', { exact: true })).toBeVisible()
+  await expect(page.getByText(/配套包里没有角色卡/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /开始导入/ })).toBeDisabled()
 })
 
 test('supports dark mode without mobile overflow', async ({ page }) => {
@@ -1228,7 +1870,7 @@ test('supports dark mode without mobile overflow', async ({ page }) => {
   await expect(page.locator('html')).toHaveClass(/dark/)
 
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: '对话' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
   const overflow = await page.evaluate(
     () =>
       Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth,
@@ -1243,6 +1885,7 @@ test('uses two-level settings navigation on mobile without changing desktop', as
 
   for (const label of [
     '模型与服务',
+    '生图 API',
     '角色',
     '用户身份',
     '主题',
@@ -1256,6 +1899,12 @@ test('uses two-level settings navigation on mobile without changing desktop', as
     await expect(page.getByRole('link', { name: label, exact: true })).toBeVisible()
   }
   await expect(page.getByText('还没有保存的 API 连接')).toBeHidden()
+
+  await page.getByRole('link', { name: '生图 API', exact: true }).click()
+  await expect(page).toHaveURL(/section=images/)
+  await expect(page.getByRole('heading', { name: '生图 API', level: 2 })).toBeVisible()
+  await expect(page.getByLabel('Base URL')).toBeVisible()
+  await page.getByRole('link', { name: '返回设置' }).click()
 
   await page.getByRole('link', { name: '记忆', exact: true }).click()
   await expect(page).toHaveURL(/section=memory/)
@@ -1282,7 +1931,7 @@ test('captures empty baselines and imported chat screenshots', async ({ page }) 
   test.setTimeout(60_000)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: '对话' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
   await page.waitForTimeout(300)
   await page.screenshot({ path: path.join(screenshotDir, 'home-1440.png'), fullPage: true })
 
@@ -1293,7 +1942,7 @@ test('captures empty baselines and imported chat screenshots', async ({ page }) 
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: '对话' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '对话', exact: true })).toBeVisible()
   await page.waitForTimeout(300)
   await page.screenshot({ path: path.join(screenshotDir, 'home-390.png'), fullPage: true })
   await page.getByRole('button', { name: '打开菜单' }).click()
