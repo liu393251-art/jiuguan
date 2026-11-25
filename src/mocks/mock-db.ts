@@ -1,4 +1,8 @@
 import { tavernStateSchema, type TavernState } from '@/features/tavern/types'
+import {
+  hasLegacyBuiltinComboResources,
+  reconcileBuiltinComboResources,
+} from '@/features/tavern/lib/builtin-combos'
 import { BUILTIN_CHAT_REGEX_ID, createBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
 import {
   repairIncompleteMessage,
@@ -9,6 +13,7 @@ import { createSeedState } from './fixtures/tavern'
 
 export const TAVERN_STORAGE_KEY = 'xiaobai.tavern.v3'
 const BUILTIN_REGEX_MIGRATION_KEY = 'xiaobai.tavern.builtin-regex.v1'
+const BUILTIN_COMBOS_MIGRATION_KEY = 'xiaobai.tavern.builtin-combos.v2'
 
 function storageAvailable() {
   return typeof window !== 'undefined' && Boolean(window.localStorage)
@@ -27,6 +32,15 @@ function ensureBuiltinRegexMigration(state: TavernState) {
   if (added) state.regexRules.unshift(createBuiltinChatRegex())
   window.localStorage.setItem(BUILTIN_REGEX_MIGRATION_KEY, '1')
   return added
+}
+
+function ensureBuiltinComboMigration(state: TavernState) {
+  if (!storageAvailable()) return false
+  const migrated = window.localStorage.getItem(BUILTIN_COMBOS_MIGRATION_KEY) === '1'
+  if (migrated && !hasLegacyBuiltinComboResources(state)) return false
+  const changed = reconcileBuiltinComboResources(state)
+  window.localStorage.setItem(BUILTIN_COMBOS_MIGRATION_KEY, '1')
+  return changed
 }
 
 function repairIncompleteMessages(state: TavernState) {
@@ -56,7 +70,8 @@ export function readTavernState(): TavernState {
       if (parsed.success) {
         const repairedMessages = repairIncompleteMessages(parsed.data)
         const regexMigrated = ensureBuiltinRegexMigration(parsed.data)
-        if (regexMigrated || repairedMessages) {
+        const combosMigrated = ensureBuiltinComboMigration(parsed.data)
+        if (regexMigrated || combosMigrated || repairedMessages) {
           writeTavernState(parsed.data)
         }
         return parsed.data

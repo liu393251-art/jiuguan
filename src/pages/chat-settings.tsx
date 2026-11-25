@@ -16,12 +16,14 @@ import { CharacterAvatar } from '@/features/tavern/components/avatar'
 import {
   useCharacters,
   useChatSession,
+  useCombos,
   useLoadouts,
   usePresets,
   useRegexRules,
   useSettings,
   useWorldBooks,
 } from '@/features/tavern/hooks/use-tavern'
+import { withBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
 import type { ChatSession, GenerationSettings, MemoryMode } from '@/features/tavern/types'
 import { cn } from '@/lib/cn'
 
@@ -90,6 +92,7 @@ export function ChatSettingsPage() {
   const navigate = useNavigate()
   const sessionQuery = useChatSession(id)
   const charactersQuery = useCharacters()
+  const combosQuery = useCombos()
   const presetsQuery = usePresets()
   const worldBooksQuery = useWorldBooks()
   const regexQuery = useRegexRules()
@@ -105,6 +108,7 @@ export function ChatSettingsPage() {
   const draft =
     draftOverride?.sessionId === id ? draftOverride.value : session ? toDraft(session) : null
   const characters = charactersQuery.data?.items ?? []
+  const combos = combosQuery.data?.items ?? []
   const presets = presetsQuery.data?.items ?? []
   const worldBooks = worldBooksQuery.data?.items ?? []
   const regexRules = regexQuery.data?.items ?? []
@@ -170,6 +174,21 @@ export function ChatSettingsPage() {
     })
     toast.success(`已套用「${loadout.name}」`, {
       description: '保存后才会写入这段对话。',
+    })
+  }
+
+  function applyCombo(comboId: string) {
+    if (!draft) return
+    const combo = combos.find((item) => item.id === comboId)
+    if (!combo) return
+    const preset = combo.presetId ? presets.find((item) => item.id === combo.presetId) : null
+    patchDraft({
+      presetId: combo.presetId ?? '',
+      regexRuleIds: withBuiltinChatRegex(combo.regexRuleIds),
+      ...(preset ? { generation: { ...preset.generation } } : {}),
+    })
+    toast.success(`已套用「${combo.name}」`, {
+      description: '只替换预设和正则；保存后写入这段对话。',
     })
   }
 
@@ -308,6 +327,31 @@ export function ChatSettingsPage() {
             </select>
             <p className="text-muted-foreground text-[11px] leading-relaxed">
               换配套不会改写已有消息；之后的回复会按新组合生成。切换角色卡会解除配套关联。
+            </p>
+          </div>
+        </Section>
+
+        <Section
+          title="组合"
+          description="组合只带预设和正则，用来快速切换文风与文本清理规则；角色、世界书和记忆不会改变。"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="chat-combo">套用组合</Label>
+            <select
+              id="chat-combo"
+              value=""
+              onChange={(event) => applyCombo(event.target.value)}
+              className="border-input bg-background focus-visible:border-ring focus-visible:ring-ring/20 h-11 w-full min-w-0 rounded-lg border px-3 text-sm outline-none focus-visible:ring-2"
+            >
+              <option value="">选择组合，带入预设和正则</option>
+              {combos.map((combo) => (
+                <option key={combo.id} value={combo.id}>
+                  {combo.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              选择后会同时替换当前预设与正则勾选；仍需点保存才会写入这段对话。
             </p>
           </div>
         </Section>
@@ -635,7 +679,7 @@ export function ChatSettingsPage() {
           <div className="bg-muted/45 mt-3 rounded-xl border p-3">
             <p className="text-muted-foreground text-[11px]">预览</p>
             <p className="mt-1 leading-[1.88]" style={{ fontSize: `${draft.fontSize}px` }}>
-              茶还热。书也可以慢慢挑——今晚不急着关门。
+              这是一段用于预览聊天字号的示例文字。
             </p>
           </div>
         </Section>

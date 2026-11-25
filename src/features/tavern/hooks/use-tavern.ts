@@ -8,6 +8,7 @@ import {
   getCharacters,
   getChat,
   getChats,
+  getCombos,
   getLoadouts,
   getMessages,
   getPresets,
@@ -129,6 +130,10 @@ export function useRegexRules() {
 
 export function useLoadouts() {
   return useAsyncData((signal) => getLoadouts(signal), 'loadouts')
+}
+
+export function useCombos() {
+  return useAsyncData((signal) => getCombos(signal), 'combos')
 }
 
 export function useVectorMemoryStats() {

@@ -8,6 +8,8 @@ import {
   chatMessageSchema,
   chatSessionSchema,
   chatsResponseSchema,
+  comboSchema,
+  combosResponseSchema,
   exportResponseSchema,
   importResultSchema,
   loadoutSchema,
@@ -29,6 +31,8 @@ import {
   type ChatSession,
   type ChatSessionPatch,
   type ChatGenerationContext,
+  type Combo,
+  type ComboInput,
   type ImportKind,
   type ImportResult,
   type Loadout,
@@ -251,6 +255,22 @@ export async function updateLoadout(loadoutId: string, input: LoadoutInput): Pro
 
 export async function deleteLoadout(loadoutId: string) {
   return deleteJson<{ success: true }>(`/api/loadouts/${loadoutId}`, successParser)
+}
+
+export async function getCombos(signal?: AbortSignal) {
+  return getJson('/api/combos', combosResponseSchema, signal)
+}
+
+export async function createCombo(input: ComboInput): Promise<Combo> {
+  return postJson('/api/combos', input, comboSchema)
+}
+
+export async function updateCombo(comboId: string, input: ComboInput): Promise<Combo> {
+  return patchJson(`/api/combos/${comboId}`, input, comboSchema)
+}
+
+export async function deleteCombo(comboId: string) {
+  return deleteJson<{ success: true }>(`/api/combos/${comboId}`, successParser)
 }
 
 export type VectorMemoryStats = {

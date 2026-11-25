@@ -3,6 +3,7 @@ import {
   Braces,
   FileText,
   Loader2,
+  Package,
   Pencil,
   Plus,
   Trash2,
@@ -172,9 +173,15 @@ export function LibraryPage() {
       <PageHeader
         eyebrow="导入 · 新建 · 管理"
         title="导入区"
-        description="角色卡、预设、世界书和正则都在这里。导入会自动识别类型；也可以从右上角新建。"
+        description="角色卡、预设、世界书和正则都在这里。可以导入单件文件，也可以直接导入 ZIP 配套包；也可以从右上角新建。"
         actions={
           <>
+            <Button variant="outline" asChild>
+              <Link to="/import/files?pack=1">
+                <Package />
+                导入配套
+              </Link>
+            </Button>
             <Button variant="outline" asChild>
               <Link to="/import/files">
                 <Upload />

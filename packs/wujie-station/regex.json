@@ -1,0 +1,68 @@
+{
+  "name": "无界驿站 · 状态卡归一",
+  "rules": [
+    {
+      "scriptName": "状态卡去代码围栏",
+      "findRegex": "```(?:markdown|md|text)?[ \\t]*\\n[ \\t]*(\\[\\[状态\\]\\][\\s\\S]*?\\[\\[/状态\\]\\])[ \\t]*\\n```",
+      "replaceString": "$1",
+      "flags": "g",
+      "disabled": false
+    },
+    {
+      "scriptName": "状态开头归一",
+      "findRegex": "^[ \\t]*(?:【状态】|【状态卡】|［状态］|\\[状态\\]|\\[状态卡\\]|状态卡)[ \\t]*$",
+      "replaceString": "[[状态]]",
+      "flags": "gm",
+      "disabled": false
+    },
+    {
+      "scriptName": "状态结尾归一",
+      "findRegex": "^[ \\t]*(?:【/状态】|【/状态卡】|［/状态］|\\[/状态\\]|\\[/状态卡\\]|状态结束)[ \\t]*$",
+      "replaceString": "[[/状态]]",
+      "flags": "gm",
+      "disabled": false
+    },
+    {
+      "scriptName": "好感度归一",
+      "findRegex": "^([ \\t]*(?:[-*·•][ \\t]*)?)好感(?:度|感|值)?(?=[ \\t]*[：:]?[ \\t]*[+-]?\\d)",
+      "replaceString": "$1好感度",
+      "flags": "gm",
+      "disabled": false
+    },
+    {
+      "scriptName": "欲望值归一",
+      "findRegex": "^([ \\t]*(?:[-*·•][ \\t]*)?)欲望(?:值|度)?(?=[ \\t]*[：:]?[ \\t]*[+-]?\\d)",
+      "replaceString": "$1欲望值",
+      "flags": "gm",
+      "disabled": false
+    },
+    {
+      "scriptName": "堕落度归一",
+      "findRegex": "^([ \\t]*(?:[-*·•][ \\t]*)?)堕落(?:度|值)?(?=[ \\t]*[：:]?[ \\t]*[+-]?\\d)",
+      "replaceString": "$1堕落度",
+      "flags": "gm",
+      "disabled": false
+    },
+    {
+      "scriptName": "仇恨值归一",
+      "findRegex": "^([ \\t]*(?:[-*·•][ \\t]*)?)仇恨(?:值|度)?(?=[ \\t]*[：:]?[ \\t]*[+-]?\\d)",
+      "replaceString": "$1仇恨值",
+      "flags": "gm",
+      "disabled": false
+    },
+    {
+      "scriptName": "信任值归一",
+      "findRegex": "^([ \\t]*(?:[-*·•][ \\t]*)?)信任(?:值|度)?(?=[ \\t]*[：:]?[ \\t]*[+-]?\\d)",
+      "replaceString": "$1信任值",
+      "flags": "gm",
+      "disabled": false
+    },
+    {
+      "scriptName": "戒备值归一",
+      "findRegex": "^([ \\t]*(?:[-*·•][ \\t]*)?)戒备(?:值|度)?(?=[ \\t]*[：:]?[ \\t]*[+-]?\\d)",
+      "replaceString": "$1戒备值",
+      "flags": "gm",
+      "disabled": false
+    }
+  ]
+}

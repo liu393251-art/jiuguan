@@ -1,0 +1,141 @@
+{
+  "name": "棠梨预设正则包",
+  "regex_scripts": [
+    {
+      "id": "0d382a64-9ae8-419c-b11a-920232a62019",
+      "scriptName": "【li'sug】thinking",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "([\\s\\S]*)<\\/(?:(?:deep_)?think(?:ing)?)>",
+      "trimStrings": [],
+      "replaceString": "",
+      "placement": [
+        2
+      ],
+      "substituteRegex": 0,
+      "minDepth": null,
+      "maxDepth": null,
+      "markdownOnly": true,
+      "promptOnly": true
+    },
+    {
+      "id": "22ccf33d-42b9-4e35-918a-77b0fee00ce7",
+      "scriptName": "【li'sug】免责声明",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "/<emergency_task>([\\s\\S]*)</emergency_task>/i",
+      "trimStrings": [],
+      "replaceString": "",
+      "placement": [
+        2
+      ],
+      "substituteRegex": 0,
+      "minDepth": null,
+      "maxDepth": null,
+      "markdownOnly": true,
+      "promptOnly": true
+    },
+    {
+      "id": "f425d77e-e9ae-429e-8282-36f677d9be88",
+      "scriptName": "【li'sug】summary1_10楼后仅保留摘要",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "^([\\s\\S]*)\\s*<details>\\s*<summary>\\s*摘要\\s*<\\/summary>",
+      "trimStrings": [],
+      "replaceString": "",
+      "placement": [
+        2
+      ],
+      "substituteRegex": 0,
+      "minDepth": 10,
+      "maxDepth": null,
+      "markdownOnly": true,
+      "promptOnly": true
+    },
+    {
+      "id": "152727b9-ce73-487c-ad53-6e957bf62670",
+      "scriptName": "【li'sug】summary2_隐藏10楼之内的摘要",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "([\\s\\S]*)\\s*<details>\\s*<summary>\\s*摘要\\s*<\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>\\s*",
+      "trimStrings": [],
+      "replaceString": "$1",
+      "placement": [
+        2
+      ],
+      "substituteRegex": 0,
+      "minDepth": null,
+      "maxDepth": 10,
+      "markdownOnly": true,
+      "promptOnly": true
+    },
+    {
+      "id": "9e5af08a-e78e-457c-aa94-9c54dce3ba68",
+      "scriptName": "【li'sug】banwords",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "/一丝丝|(，)?指尖因用力而微微泛白|(?:她|他)?的心跳不由得漏了一拍|死死地|像是被投入了一颗石子|(?:她|他)?的(?:语气|声音)十分平淡，仿佛在讨论今天晚饭吃什么(一样)?|(?:她|他)?的(?:语气|声音)(十分)?(?:平板无波|平淡)，(?:像|仿佛)(.*?)(?:。|，)|嘴角却(不受控制地)?微微上扬|(?:她|他)?(的)?(?:语气|声音)平淡得像是在(.*?)(?:。|，)|(?:语气|声音|，)(?:看|听)不出(?:什么|任何)(?:波澜|情绪|起伏)|像一颗石子投入平静的湖面|没什么起伏的|(让)?(?:她|他)(的)?(心湖)?(?:激起|泛起|漾起)(?:层层|圈圈|一丝|千层)?涟漪|(?:她的|他的)?声音不大，(?:却|但)|像是一颗投入心湖的石子|像一颗投入心湖的石子，激起一圈圈涟漪|像是投入湖中的石子|像一颗投入平静湖面的石子|不易察可的|公式化的|不自觉地|营业式的|轻不可闻地|听不出太多情绪，|看不出太多情绪，|，听不出太多情绪|的声音平静无波，|在陈述一个再寻常不过的事实|，看不出太多情绪|不易察失的|不易察见的|不容拒绝地|笨拙地|低低地|低低的|几不可闻地|微不可察地|不易察索的|不易察觉地|若有若无的|不容拒绝的|不容忽视的|一丝|\\s*cố\\s*gắng\\s*|，嗯？|破罐子破摔的|几不可查地|又笨拙地|近乎痛苦的|胸腔的震动|每一次|每一次的|不易察觉的|生理性的|破罐子破摔般的|破罐子破摔般地|几不可查的|微不可察的|微不可查地|微不可查的|不容置喙的|禁欲色彩的|禁欲系|\\*\\*|不容置疑的|不容错认的|不容错辨的|的意味|几不可察地|几不可察的|几不可闻的|不容抗拒的|不容拒绝的|灭顶的|灭顶|近乎虔诚的|不易察测的|近乎残忍的|灭顶般的|残酷的|残忍的/gs",
+      "trimStrings": [],
+      "replaceString": "",
+      "placement": [
+        2
+      ],
+      "substituteRegex": 0,
+      "minDepth": null,
+      "maxDepth": null,
+      "markdownOnly": true,
+      "promptOnly": true
+    },
+    {
+      "id": "c212c3f3-3587-43a4-82b4-3cc8451820a4",
+      "scriptName": "【li'sug】user_message",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "/.*/s",
+      "trimStrings": [],
+      "replaceString": "",
+      "placement": [
+        1
+      ],
+      "substituteRegex": 0,
+      "minDepth": null,
+      "maxDepth": null,
+      "markdownOnly": false,
+      "promptOnly": true
+    },
+    {
+      "id": "f90b250e-4abf-46a4-b5af-ae7071258970",
+      "scriptName": "【li'sug】selections",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "/(?:<selections>|\\[selections\\])([\\s\\S]*)(?:\\[\\/selections\\]|<\\/selections>|(?=<emergency _task>)|$)/i",
+      "trimStrings": [],
+      "replaceString": "",
+      "placement": [
+        2
+      ],
+      "substituteRegex": 0,
+      "minDepth": null,
+      "maxDepth": null,
+      "markdownOnly": false,
+      "promptOnly": true
+    },
+    {
+      "id": "10ebe700-524e-4e8d-a379-46273e651892",
+      "scriptName": "【li'sug】Self_Critique",
+      "disabled": false,
+      "runOnEdit": true,
+      "findRegex": "/([\\s\\S]*?)</Self_Critique>|([\\s\\S]*)(?=<deleted_content>)/i",
+      "trimStrings": [],
+      "replaceString": "",
+      "placement": [
+        2
+      ],
+      "substituteRegex": 0,
+      "minDepth": null,
+      "maxDepth": null,
+      "markdownOnly": true,
+      "promptOnly": true
+    }
+  ]
+}

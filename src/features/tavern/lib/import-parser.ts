@@ -9,6 +9,8 @@ export type ParsedImport = {
   name: string
   summary: string
   reason?: string
+  details?: string[]
+  blocked?: boolean
   raw: unknown
 }
 
@@ -340,6 +342,29 @@ function normalizeRegexPattern(source: string, explicitFlags: string) {
   return { pattern, flags }
 }
 
+function regexScopeFromPlacement(value: unknown): 'input' | 'output' | 'both' {
+  const placements = Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === 'number')
+    : []
+  if (placements.length === 0) return 'output'
+  const hasInput = placements.includes(1)
+  const hasOutput = placements.includes(2)
+  if (hasInput && hasOutput) return 'both'
+  return hasInput ? 'input' : 'output'
+}
+
+function isWholeMessageBlank(pattern: string, replacement: string) {
+  if (replacement.trim()) return false
+  const normalized = pattern.replace(/\s+/g, '')
+  return ['^.*$', '.*', '^[\\s\\S]*$', '[\\s\\S]*', '^[\\s\\S]*?$', '[\\s\\S]*?'].includes(
+    normalized,
+  )
+}
+
+function hasDepthScope(entry: Record<string, unknown>) {
+  return typeof entry.minDepth === 'number' || typeof entry.maxDepth === 'number'
+}
+
 function normalizeRegexRaw(raw: unknown, fileName: string): ImportPayload {
   const list = Array.isArray(raw)
     ? raw
@@ -351,7 +376,7 @@ function normalizeRegexRaw(raw: unknown, fileName: string): ImportPayload {
     pattern: string
     replacement: string
     flags: string
-    scope: 'output'
+    scope: 'input' | 'output' | 'both'
     enabled: boolean
   }
 
@@ -361,13 +386,19 @@ function normalizeRegexRaw(raw: unknown, fileName: string): ImportPayload {
       const source = asString(entry.findRegex ?? entry.pattern ?? entry.find_regex)
       if (!source) return null
       const normalized = normalizeRegexPattern(source, asString(entry.flags))
+      const replacement = asString(entry.replaceString ?? entry.replacement ?? entry.replace)
       return {
         name: asString(entry.scriptName ?? entry.name) || fileName.replace(/\.[^.]+$/, ''),
         pattern: normalized.pattern,
-        replacement: asString(entry.replaceString ?? entry.replacement ?? entry.replace),
+        replacement,
         flags: normalized.flags,
-        scope: 'output' as const,
-        enabled: !asBoolean(entry.disabled ?? entry.disabledFlag, false),
+        scope: regexScopeFromPlacement(entry.placement),
+        // SillyTavern's depth-scoped and whole-message blanking scripts need its
+        // message pipeline; keeping them enabled here would corrupt chat text.
+        enabled:
+          !asBoolean(entry.disabled ?? entry.disabledFlag, false) &&
+          !hasDepthScope(entry) &&
+          !isWholeMessageBlank(normalized.pattern, replacement),
       }
     })
     .filter((rule): rule is NormalizedRule => Boolean(rule))
@@ -409,6 +440,7 @@ function detectJsonKind(raw: unknown): ImportKind | 'unknown' {
   }
   if (isRecord(raw.entries) || Array.isArray(raw.entries)) return 'worldbook'
   if (raw.findRegex || raw.pattern || raw.find_regex) return 'regex'
+  if (Array.isArray(raw.rules)) return 'regex'
 
   const settings = isRecord(raw.settings) ? raw.settings : raw
   const hasGeneration =
@@ -449,6 +481,7 @@ export function buildImportPayload(
   raw: unknown,
   fileName: string,
 ): ImportPayload {
+  if (kind === 'pack') throw new Error('配套包需要通过 ZIP 文件导入。')
   if (kind === 'character') return normalizeCharacter(raw, fileName)
   if (kind === 'preset') return normalizePreset(raw, fileName)
   if (kind === 'worldbook') return normalizeWorldBook(raw, fileName)

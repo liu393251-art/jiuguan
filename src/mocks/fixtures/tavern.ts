@@ -1,13 +1,16 @@
 import type { TavernState } from '@/features/tavern/types'
+import { createBuiltinComboResources } from '@/features/tavern/lib/builtin-combos'
 import { createBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
 
 export function createSeedState(): TavernState {
+  const builtinCombos = createBuiltinComboResources()
   return {
     characters: [],
     loadouts: [],
-    presets: [],
+    combos: builtinCombos.combos,
+    presets: builtinCombos.presets,
     worldBooks: [],
-    regexRules: [createBuiltinChatRegex()],
+    regexRules: [createBuiltinChatRegex(), ...builtinCombos.regexRules],
     sessions: [],
     messages: {},
     vectorMemories: [],

@@ -103,6 +103,8 @@ export const regexRuleInputSchema = z.object({
 
 export const regexRuleSchema = regexRuleInputSchema.extend({
   id: z.string().min(1),
+  packId: z.string().min(1).nullable().default(null),
+  packName: z.string().min(1).nullable().default(null),
 })
 
 export const memoryModeSchema = z.enum(['off', 'recent', 'summary', 'compressed', 'vector'])
@@ -136,6 +138,28 @@ export const loadoutInputSchema = z.object({
   worldBookIds: z.array(z.string()),
   regexRuleIds: z.array(z.string()),
   memoryMode: memoryModeSchema,
+})
+
+const comboBaseSchema = z.object({
+  name: z.string().trim().min(1, '请填写组合名称。'),
+  description: z.string().trim(),
+  presetId: z.string().nullable(),
+  regexRuleIds: z.array(z.string()),
+})
+
+export const comboInputSchema = comboBaseSchema.refine(
+  (value) => Boolean(value.presetId) || value.regexRuleIds.length > 0,
+  {
+    message: '组合至少需要带一个预设或一条正则。',
+  },
+)
+
+export const comboSchema = comboBaseSchema.extend({
+  id: z.string().min(1),
+  coverImage: z.string().nullable().default(null),
+  source: characterSourceSchema,
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
 })
 
 export const vectorMemoryEntrySchema = z.object({
@@ -235,6 +259,7 @@ export const worldBooksResponseSchema = z.object({ items: z.array(worldBookSchem
 export const regexRulesResponseSchema = z.object({ items: z.array(regexRuleSchema) })
 export const chatsResponseSchema = z.object({ items: z.array(chatSessionSchema) })
 export const loadoutsResponseSchema = z.object({ items: z.array(loadoutSchema) })
+export const combosResponseSchema = z.object({ items: z.array(comboSchema) })
 
 export const messagesResponseSchema = z.object({
   items: z.array(chatMessageSchema),
@@ -282,7 +307,7 @@ export const settingsPatchSchema = z.object({
   appearance: appearanceSettingsSchema.optional(),
 })
 
-export const importKindSchema = z.enum(['character', 'preset', 'worldbook', 'regex'])
+export const importKindSchema = z.enum(['character', 'preset', 'worldbook', 'regex', 'pack'])
 
 export const importRequestSchema = z.object({
   kind: importKindSchema,
@@ -296,6 +321,7 @@ export const importResultSchema = z.object({
   name: z.string(),
   message: z.string(),
   id: z.string().optional(),
+  loadoutId: z.string().optional(),
   count: z.number().int().nonnegative().optional(),
 })
 
@@ -307,6 +333,7 @@ export const exportResponseSchema = z.object({
 export const tavernStateSchema = z.object({
   characters: z.array(characterSchema),
   loadouts: z.array(loadoutSchema).default([]),
+  combos: z.array(comboSchema).default([]),
   presets: z.array(presetSchema),
   worldBooks: z.array(worldBookSchema),
   regexRules: z.array(regexRuleSchema),
@@ -333,6 +360,8 @@ export type MemoryMode = z.infer<typeof memoryModeSchema>
 export type MemoryProfile = z.infer<typeof memoryProfileSchema>
 export type Loadout = z.infer<typeof loadoutSchema>
 export type LoadoutInput = z.infer<typeof loadoutInputSchema>
+export type Combo = z.infer<typeof comboSchema>
+export type ComboInput = z.infer<typeof comboInputSchema>
 export type VectorMemoryEntry = z.infer<typeof vectorMemoryEntrySchema>
 export type UserIdentity = z.infer<typeof userIdentitySchema>
 export type AppearanceSettings = z.infer<typeof appearanceSettingsSchema>

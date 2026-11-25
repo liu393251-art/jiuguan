@@ -4,10 +4,12 @@ import { z } from 'zod'
 import {
   characterInputSchema,
   chatSessionPatchSchema,
+  comboInputSchema,
   completeMessageInputSchema,
   defaultGeneration,
   importRequestSchema,
   loadoutInputSchema,
+  memoryModeSchema,
   presetInputSchema,
   regexRuleInputSchema,
   sendMessageInputSchema,
@@ -16,6 +18,8 @@ import {
   type ChatMessage,
   type ChatSession,
   type Character,
+  type Combo,
+  type ImportKind,
   type Loadout,
   type RegexRule,
   type TavernState,
@@ -90,7 +94,10 @@ function memoryScopeId(session: ChatSession) {
 }
 
 function buildDefaultLoadout(state: TavernState, character: Character, timestamp: string): Loadout {
-  const preset = state.presets.find((item) => item.id === 'preset-warm') ?? state.presets[0] ?? null
+  const preset =
+    state.presets.find((item) => item.id === 'preset-warm') ??
+    state.presets.find((item) => item.source !== 'seed') ??
+    null
   return {
     id: createUuid(),
     name: `${character.name} · 默认配套`,
@@ -112,6 +119,17 @@ function ensureLoadoutRecord(state: TavernState, character: Character, timestamp
   const loadout = buildDefaultLoadout(state, character, timestamp)
   state.loadouts.unshift(loadout)
   return loadout
+}
+
+function comboReferencesExist(
+  state: TavernState,
+  payload: { presetId: string | null; regexRuleIds: string[] },
+) {
+  if (payload.presetId && !state.presets.some((preset) => preset.id === payload.presetId)) {
+    return false
+  }
+  const knownRegex = new Set(state.regexRules.map((rule) => rule.id))
+  return payload.regexRuleIds.every((id) => knownRegex.has(id))
 }
 
 function resolveVectorApiProfile(state: TavernState) {
@@ -307,6 +325,16 @@ const characterImportSchema = characterInputSchema.extend({
 const regexImportSchema = z.object({
   name: z.string().min(1),
   rules: z.array(regexRuleInputSchema).min(1),
+})
+
+const packImportSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().trim().default(''),
+  character: characterImportSchema,
+  preset: presetInputSchema.nullable().default(null),
+  worldbooks: z.array(worldBookInputSchema).max(24).default([]),
+  regexRules: z.array(regexRuleInputSchema).max(160).default([]),
+  memoryMode: memoryModeSchema.optional(),
 })
 
 export const tavernHandlers = [
@@ -902,6 +930,67 @@ export const tavernHandlers = [
     return HttpResponse.json({ success: true })
   }),
 
+  http.get('/api/combos', async () => {
+    await delay(180)
+    return HttpResponse.json({ items: readTavernState().combos })
+  }),
+
+  http.post('/api/combos', async ({ request }) => {
+    await delay(320)
+    try {
+      const payload = comboInputSchema.parse(await request.json())
+      const state = readTavernState()
+      if (!comboReferencesExist(state, payload)) {
+        return HttpResponse.json({ message: '组合引用的预设或正则已不存在。' }, { status: 422 })
+      }
+      const timestamp = now()
+      const combo: Combo = {
+        ...payload,
+        id: createUuid(),
+        coverImage: null,
+        source: 'user',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }
+      updateTavernState((current) => {
+        current.combos.unshift(combo)
+      })
+      return HttpResponse.json(combo, { status: 201 })
+    } catch {
+      return HttpResponse.json({ message: '组合信息不完整，至少选择预设或正则。' }, { status: 422 })
+    }
+  }),
+
+  http.patch('/api/combos/:id', async ({ params, request }) => {
+    await delay(280)
+    try {
+      const payload = comboInputSchema.parse(await request.json())
+      const comboId = String(params.id)
+      const state = readTavernState()
+      const existing = state.combos.find((combo) => combo.id === comboId)
+      if (!existing) return HttpResponse.json(NOT_FOUND, { status: 404 })
+      if (!comboReferencesExist(state, payload)) {
+        return HttpResponse.json({ message: '组合引用的预设或正则已不存在。' }, { status: 422 })
+      }
+      const updated: Combo = { ...existing, ...payload, updatedAt: now() }
+      updateTavernState((current) => {
+        current.combos = current.combos.map((combo) => (combo.id === comboId ? updated : combo))
+      })
+      return HttpResponse.json(updated)
+    } catch {
+      return HttpResponse.json({ message: '组合信息不完整，至少选择预设或正则。' }, { status: 422 })
+    }
+  }),
+
+  http.delete('/api/combos/:id', async ({ params }) => {
+    await delay(220)
+    const comboId = String(params.id)
+    updateTavernState((state) => {
+      state.combos = state.combos.filter((combo) => combo.id !== comboId)
+    })
+    return HttpResponse.json({ success: true })
+  }),
+
   http.get('/api/presets', async () => {
     await delay(180)
     return HttpResponse.json({ items: readTavernState().presets })
@@ -941,10 +1030,14 @@ export const tavernHandlers = [
   http.delete('/api/presets/:id', async ({ params }) => {
     await delay(220)
     const id = String(params.id)
+    const timestamp = now()
     updateTavernState((state) => {
       state.presets = state.presets.filter((preset) => preset.id !== id)
       state.sessions = state.sessions.map((session) =>
         session.presetId === id ? { ...session, presetId: null } : session,
+      )
+      state.combos = state.combos.map((combo) =>
+        combo.presetId === id ? { ...combo, presetId: null, updatedAt: timestamp } : combo,
       )
     })
     return HttpResponse.json({ success: true })
@@ -1018,7 +1111,7 @@ export const tavernHandlers = [
     await delay(300)
     try {
       const payload = regexRuleInputSchema.parse(await request.json())
-      const rule: RegexRule = { ...payload, id: createUuid() }
+      const rule: RegexRule = { ...payload, id: createUuid(), packId: null, packName: null }
       updateTavernState((state) => {
         state.regexRules.unshift(rule)
       })
@@ -1048,12 +1141,22 @@ export const tavernHandlers = [
   http.delete('/api/regex-rules/:id', async ({ params }) => {
     await delay(220)
     const id = String(params.id)
+    const timestamp = now()
     updateTavernState((state) => {
       state.regexRules = state.regexRules.filter((rule) => rule.id !== id)
       state.sessions = state.sessions.map((session) => ({
         ...session,
         regexRuleIds: session.regexRuleIds.filter((ruleId) => ruleId !== id),
       }))
+      state.combos = state.combos.map((combo) =>
+        combo.regexRuleIds.includes(id)
+          ? {
+              ...combo,
+              regexRuleIds: combo.regexRuleIds.filter((ruleId) => ruleId !== id),
+              updatedAt: timestamp,
+            }
+          : combo,
+      )
     })
     return HttpResponse.json({ success: true })
   }),
@@ -1116,9 +1219,92 @@ export const tavernHandlers = [
 
   http.post('/api/import', async ({ request }) => {
     await delay(420)
+    let requestedKind: ImportKind = 'character'
     try {
       const payload = importRequestSchema.parse(await request.json())
+      requestedKind = payload.kind
       const timestamp = now()
+
+      if (payload.kind === 'pack') {
+        const parsed = packImportSchema.parse(payload.payload)
+        const { attachedWorldBook, ...characterInput } = parsed.character
+        const character: Character = {
+          ...characterInput,
+          id: createUuid(),
+          source: 'import',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }
+        const attachedBook: WorldBook | null = attachedWorldBook
+          ? {
+              ...attachedWorldBook,
+              id: createUuid(),
+              source: 'import',
+              createdAt: timestamp,
+              entries: attachedWorldBook.entries.map((entry) => ({ ...entry, id: createUuid() })),
+            }
+          : null
+        const worldBooks: WorldBook[] = parsed.worldbooks.map((book) => ({
+          ...book,
+          id: createUuid(),
+          source: 'import',
+          createdAt: timestamp,
+          entries: book.entries.map((entry) => ({ ...entry, id: createUuid() })),
+        }))
+        const preset = parsed.preset
+          ? {
+              ...parsed.preset,
+              id: createUuid(),
+              source: 'import' as const,
+              createdAt: timestamp,
+            }
+          : null
+        const regexPackId = `regex-pack-${createUuid()}`
+        const regexRules: RegexRule[] = parsed.regexRules.map((rule) => ({
+          ...rule,
+          id: createUuid(),
+          packId: regexPackId,
+          packName: parsed.name,
+        }))
+        const worldBookIds = [
+          ...new Set([
+            ...(attachedBook ? [attachedBook.id] : []),
+            ...worldBooks.map((book) => book.id),
+          ]),
+        ]
+        const loadout: Loadout = {
+          id: createUuid(),
+          name: parsed.name,
+          characterId: character.id,
+          presetId: preset?.id ?? null,
+          worldBookIds,
+          regexRuleIds: [...new Set([BUILTIN_CHAT_REGEX_ID, ...regexRules.map((rule) => rule.id)])],
+          memoryMode: parsed.memoryMode ?? readTavernState().settings.memoryProfile.mode,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }
+
+        updateTavernState((current) => {
+          current.characters.unshift(character)
+          if (attachedBook) current.worldBooks.unshift(attachedBook)
+          if (worldBooks.length > 0) current.worldBooks.unshift(...worldBooks)
+          if (preset) current.presets.unshift(preset)
+          if (regexRules.length > 0) current.regexRules.unshift(...regexRules)
+          current.loadouts.unshift(loadout)
+        })
+
+        return HttpResponse.json({
+          ok: true,
+          kind: 'pack',
+          name: parsed.name,
+          id: loadout.id,
+          loadoutId: loadout.id,
+          message: `配套已导入：角色 1、世界书 ${worldBookIds.length}、预设 ${
+            preset ? 1 : 0
+          }、正则 ${regexRules.length} 条`,
+          count: 1 + worldBookIds.length + (preset ? 1 : 0) + regexRules.length,
+        })
+      }
 
       if (payload.kind === 'character') {
         const parsed = characterImportSchema.parse(payload.payload)
@@ -1200,7 +1386,13 @@ export const tavernHandlers = [
       }
 
       const parsed = regexImportSchema.parse(payload.payload)
-      const rules: RegexRule[] = parsed.rules.map((rule) => ({ ...rule, id: createUuid() }))
+      const packId = `regex-pack-${createUuid()}`
+      const rules: RegexRule[] = parsed.rules.map((rule) => ({
+        ...rule,
+        id: createUuid(),
+        packId,
+        packName: parsed.name,
+      }))
       updateTavernState((current) => {
         current.regexRules.unshift(...rules)
       })
@@ -1215,7 +1407,7 @@ export const tavernHandlers = [
     } catch (error) {
       return HttpResponse.json({
         ok: false,
-        kind: 'character',
+        kind: requestedKind,
         name: '未导入',
         message: error instanceof Error ? error.message.slice(0, 160) : '文件结构无法识别。',
         count: 0,

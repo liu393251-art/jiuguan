@@ -143,6 +143,40 @@ describe('import parser', () => {
     ).toThrow(/正则表达式/)
   })
 
+  it('disables whole-message blanking and depth-scoped regex exports', () => {
+    const payload = buildImportPayload(
+      'regex',
+      [
+        {
+          scriptName: 'user_message',
+          findRegex: '/.*/s',
+          replaceString: '',
+          placement: [1],
+        },
+        {
+          scriptName: 'summary1',
+          findRegex: '/开头|结尾/g',
+          replaceString: '',
+          placement: [2],
+          minDepth: 6,
+        },
+        {
+          scriptName: 'banwords',
+          findRegex: '/一丝丝/g',
+          replaceString: '',
+          placement: [2],
+        },
+      ],
+      'rules.json',
+    ) as {
+      rules: { name: string; scope: string; enabled: boolean }[]
+    }
+
+    expect(payload.rules[0]).toMatchObject({ scope: 'input', enabled: false })
+    expect(payload.rules[1]).toMatchObject({ scope: 'output', enabled: false })
+    expect(payload.rules[2]).toMatchObject({ scope: 'output', enabled: true })
+  })
+
   it('leaves unknown JSON untouched', async () => {
     const file = jsonFile('notes.json', { hello: 'world' })
     const parsed = await parseImportFile(file)
