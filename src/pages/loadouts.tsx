@@ -54,7 +54,11 @@ import {
   useWorldBooks,
 } from '@/features/tavern/hooks/use-tavern'
 import { BUILTIN_CHAT_REGEX_ID, withBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
-import { buildRegexPacks, findRegexPackForRules } from '@/features/tavern/lib/regex-packs'
+import {
+  buildRegexPacks,
+  findRegexPackForRules,
+  type RegexPack,
+} from '@/features/tavern/lib/regex-packs'
 import type {
   Combo,
   ComboInput,
@@ -129,9 +133,7 @@ export function LoadoutsPage() {
   const characterMap = new Map(characters.map((character) => [character.id, character]))
   const presetMap = new Map(presets.map((preset) => [preset.id, preset]))
   const regexMap = new Map(regexRules.map((rule) => [rule.id, rule]))
-  const regexPacks = buildRegexPacks(regexRules).filter(
-    (pack) => !pack.ruleIds.includes(BUILTIN_CHAT_REGEX_ID),
-  )
+  const regexPacks = buildRegexPacks(regexRules)
 
   const loading =
     tab === 'loadouts'
@@ -294,7 +296,10 @@ export function LoadoutsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {combos.map((combo) => {
               const preset = combo.presetId ? presetMap.get(combo.presetId) : null
-              const regexPack = findRegexPackForRules(regexPacks, combo.regexRuleIds)
+              const savedRegexRuleIds = combo.regexRuleIds.filter(
+                (id) => id !== BUILTIN_CHAT_REGEX_ID,
+              )
+              const regexPack = findRegexPackForRules(regexPacks, savedRegexRuleIds)
               const activeRegexCount = combo.regexRuleIds.filter(
                 (id) => regexMap.get(id)?.enabled,
               ).length
@@ -347,10 +352,12 @@ export function LoadoutsPage() {
                         label="正则"
                         value={
                           regexPack
-                            ? `${regexPack.name} · ${regexPack.ruleIds.length} 条 · ${activeRegexCount} 启用`
-                            : combo.regexRuleIds.length > 0
-                              ? `多组正则 · ${combo.regexRuleIds.length} 条 · ${activeRegexCount} 启用`
-                              : '不绑定正则'
+                            ? `${regexPack.name} · ${regexPack.ruleIds.length} 条 + 内置气泡 · ${activeRegexCount} 启用`
+                            : savedRegexRuleIds.length > 0
+                              ? `多组正则 · ${savedRegexRuleIds.length} 条 + 内置气泡 · ${activeRegexCount} 启用`
+                              : combo.regexRuleIds.includes(BUILTIN_CHAT_REGEX_ID)
+                                ? '微信式对话气泡（内置）'
+                                : '不绑定正则'
                         }
                         muted={combo.regexRuleIds.length === 0}
                       />
@@ -412,10 +419,11 @@ export function LoadoutsPage() {
           {loadouts.map((loadout) => {
             const character = characterMap.get(loadout.characterId)
             const preset = loadout.presetId ? presetMap.get(loadout.presetId) : null
-            const regexPack = findRegexPackForRules(
-              regexPacks,
-              loadout.regexRuleIds.filter((id) => id !== BUILTIN_CHAT_REGEX_ID),
+            const savedRegexRuleIds = loadout.regexRuleIds.filter(
+              (id) => id !== BUILTIN_CHAT_REGEX_ID,
             )
+            const regexPack = findRegexPackForRules(regexPacks, savedRegexRuleIds)
+            const hasBuiltinChatRegex = loadout.regexRuleIds.includes(BUILTIN_CHAT_REGEX_ID)
             return (
               <Card key={loadout.id} className="flex min-w-0 flex-col">
                 <CardContent className="flex flex-1 flex-col p-4">
@@ -458,10 +466,12 @@ export function LoadoutsPage() {
                       label="正则"
                       value={
                         regexPack
-                          ? `${regexPack.name} · ${regexPack.ruleIds.length} 条`
-                          : loadout.regexRuleIds.length > 0
-                            ? `${loadout.regexRuleIds.length} 条`
-                            : '未绑定'
+                          ? `${regexPack.name} · ${regexPack.ruleIds.length} 条 + 气泡`
+                          : hasBuiltinChatRegex && savedRegexRuleIds.length === 0
+                            ? '微信式对话气泡（内置）'
+                            : loadout.regexRuleIds.length > 0
+                              ? `${loadout.regexRuleIds.length} 条`
+                              : '未绑定'
                       }
                       muted={loadout.regexRuleIds.length === 0}
                     />
@@ -662,9 +672,7 @@ function LoadoutEditor({
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const regexPacks = buildRegexPacks(regexRules).filter(
-    (pack) => !pack.ruleIds.includes(BUILTIN_CHAT_REGEX_ID),
-  )
+  const regexPacks = buildRegexPacks(regexRules)
   const selectedRegexRuleIds = draft.regexRuleIds.filter((id) => id !== BUILTIN_CHAT_REGEX_ID)
   const selectedRegexPack = findRegexPackForRules(regexPacks, selectedRegexRuleIds)
   const hasLegacyRegexSelection = selectedRegexRuleIds.length > 0 && !selectedRegexPack
@@ -847,13 +855,17 @@ function LoadoutEditor({
                     </option>
                   )}
                   {regexPacks.map((pack) => (
-                    <option key={pack.id} value={pack.id}>
-                      {pack.name}（{pack.ruleIds.length} 条）
+                    <option
+                      key={pack.id}
+                      value={pack.id}
+                      disabled={pack.ruleIds.includes(BUILTIN_CHAT_REGEX_ID)}
+                    >
+                      {regexPackOptionLabel(pack)}
                     </option>
                   ))}
                 </select>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  正则按整组套用；套用组合时会自动保留微信式对话气泡。
+                  正则按整组套用。微信式对话气泡是内置规则，套用任意组合或配套时会自动保留；可在导入区打开它单独停用。
                 </p>
               </>
             )}
@@ -942,12 +954,9 @@ function ComboEditor({
   )
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const regexPacks = buildRegexPacks(regexRules).filter(
-    (pack) => !pack.ruleIds.includes(BUILTIN_CHAT_REGEX_ID),
-  )
-  const selectedRegexRuleIds = draft.regexRuleIds.filter((id) => id !== BUILTIN_CHAT_REGEX_ID)
-  const selectedRegexPack = findRegexPackForRules(regexPacks, selectedRegexRuleIds)
-  const hasLegacyRegexSelection = selectedRegexRuleIds.length > 0 && !selectedRegexPack
+  const regexPacks = buildRegexPacks(regexRules)
+  const selectedRegexPack = findRegexPackForRules(regexPacks, draft.regexRuleIds)
+  const hasLegacyRegexSelection = draft.regexRuleIds.length > 0 && !selectedRegexPack
   const selectedRegexPackId = selectedRegexPack?.id ?? (hasLegacyRegexSelection ? '__legacy__' : '')
 
   function patch(next: Partial<ComboInput>) {
@@ -980,7 +989,6 @@ function ComboEditor({
         name: draft.name.trim(),
         description: draft.description.trim(),
         presetId: draft.presetId || null,
-        regexRuleIds: draft.regexRuleIds.filter((id) => id !== BUILTIN_CHAT_REGEX_ID),
       }
       if (combo) await updateCombo(combo.id, input)
       else await createCombo(input)
@@ -1056,12 +1064,12 @@ function ComboEditor({
                   )}
                   {regexPacks.map((pack) => (
                     <option key={pack.id} value={pack.id}>
-                      {pack.name}（{pack.ruleIds.length} 条）
+                      {regexPackOptionLabel(pack)}
                     </option>
                   ))}
                 </select>
                 <p className="text-muted-foreground text-[11px] leading-relaxed">
-                  正则按整组套用，不单独拆分条目。
+                  正则按整组套用。微信式对话气泡可直接选择；套用其他正则包时也会自动保留，并可在导入区单独管理开关。
                 </p>
               </>
             )}
@@ -1095,4 +1103,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {children}
     </div>
   )
+}
+
+function regexPackOptionLabel(pack: RegexPack) {
+  return pack.ruleIds.includes(BUILTIN_CHAT_REGEX_ID)
+    ? '微信式对话气泡（内置 · 1 条）'
+    : `${pack.name}（${pack.ruleIds.length} 条）`
 }

@@ -53,6 +53,11 @@ import {
   useWorldBooks,
 } from '@/features/tavern/hooks/use-tavern'
 import {
+  BUILTIN_CHAT_REGEX_ID,
+  BUILTIN_CHAT_REGEX_PACK_ID,
+} from '@/features/tavern/lib/builtin-regex'
+import { buildRegexPacks, type RegexPack } from '@/features/tavern/lib/regex-packs'
+import {
   defaultGeneration,
   type GenerationSettings,
   type Preset,
@@ -95,6 +100,7 @@ export function LibraryPage() {
   const [regexEditor, setRegexEditor] = useState<{ open: boolean; value?: RegexRule }>({
     open: false,
   })
+  const [regexPackId, setRegexPackId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [newPickerOpen, setNewPickerOpen] = useState(false)
@@ -103,6 +109,10 @@ export function LibraryPage() {
   const presets = presetsQuery.data?.items ?? []
   const worldBooks = worldBooksQuery.data?.items ?? []
   const regexRules = regexQuery.data?.items ?? []
+  const regexPacks = buildRegexPacks(regexRules)
+  const managedRegexPack = regexPackId
+    ? regexPacks.find((pack) => pack.id === regexPackId)
+    : undefined
 
   function setTab(value: LibraryTab) {
     setParams({ tab: value })
@@ -165,7 +175,7 @@ export function LibraryPage() {
     characters: characters.length,
     presets: presets.length,
     worldbooks: worldBooks.length,
-    regex: regexRules.length,
+    regex: regexPacks.length,
   }
 
   return (
@@ -442,50 +452,75 @@ export function LibraryPage() {
           }
         />
       ) : (
-        <div className="space-y-2">
-          {regexRules.map((rule) => (
-            <Card key={rule.id}>
-              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-sm font-semibold">{rule.name}</h2>
-                    <Badge variant={rule.enabled ? 'success' : 'outline'}>
-                      {rule.enabled ? '启用' : '停用'}
-                    </Badge>
-                    <Badge variant="outline">
-                      {rule.scope === 'both'
-                        ? '输入 + 输出'
-                        : rule.scope === 'input'
-                          ? '输入'
-                          : '输出'}
-                    </Badge>
-                  </div>
-                  <code className="text-muted-foreground mt-1.5 block truncate text-[11px]">
-                    /{rule.pattern}/{rule.flags} → {rule.replacement || '（空）'}
-                  </code>
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setRegexEditor({ open: true, value: rule })}
-                  >
-                    <Pencil />
-                    编辑
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-destructive"
-                    onClick={() => setDeleteTarget({ kind: 'regex', id: rule.id, name: rule.name })}
-                  >
-                    <Trash2 />
-                    删除
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-3">
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            每个导入文件或内置预设会归为一个正则包。进入包内后，可以逐条启用、停用、编辑或删除规则。
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {regexPacks.map((pack) => {
+              const enabledCount = pack.rules.filter((rule) => rule.enabled).length
+              const sourceLabel = isBuiltinRegexPack(pack)
+                ? '内置'
+                : pack.rules.some((rule) => rule.packId)
+                  ? '导入包'
+                  : '单条'
+              return (
+                <Card key={pack.id} data-testid="regex-pack-card">
+                  <CardContent className="flex h-full flex-col p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="bg-muted text-muted-foreground flex size-10 shrink-0 items-center justify-center rounded-xl">
+                        <Braces className="size-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="truncate text-sm font-semibold">{pack.name}</h2>
+                        <p className="text-muted-foreground mt-1 text-xs">
+                          {pack.rules.length} 条规则 · {enabledCount} 条启用
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="shrink-0">
+                        {sourceLabel}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 space-y-1.5">
+                      {pack.rules.slice(0, 2).map((rule) => (
+                        <div
+                          key={rule.id}
+                          className="text-muted-foreground flex min-w-0 items-center gap-2 text-[11px]"
+                        >
+                          <span
+                            className={cn(
+                              'size-1.5 shrink-0 rounded-full',
+                              rule.enabled ? 'bg-primary' : 'bg-muted-foreground/30',
+                            )}
+                          />
+                          <span className="truncate">{rule.name}</span>
+                          {!rule.enabled && <span className="shrink-0">停用</span>}
+                        </div>
+                      ))}
+                      {pack.rules.length > 2 && (
+                        <p className="text-muted-foreground pl-3.5 text-[11px]">
+                          还有 {pack.rules.length - 2} 条规则
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-auto flex justify-end border-t pt-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setRegexPackId(pack.id)}
+                        aria-label={`管理正则包 ${pack.name}`}
+                      >
+                        <Pencil />
+                        进入管理
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -520,6 +555,21 @@ export function LibraryPage() {
             setRegexEditor({ open: false })
             regexQuery.refresh()
           }}
+        />
+      )}
+      {managedRegexPack && (
+        <RegexPackManager
+          open
+          pack={managedRegexPack}
+          onOpenChange={(open) => {
+            if (!open) setRegexPackId(null)
+          }}
+          onEditRule={(rule) => setRegexEditor({ open: true, value: rule })}
+          onDeleteRule={(rule) => {
+            setRegexPackId(null)
+            setDeleteTarget({ kind: 'regex', id: rule.id, name: rule.name })
+          }}
+          onSaved={regexQuery.refresh}
         />
       )}
       <ConfirmDialog
@@ -920,6 +970,125 @@ function WorldBookEditor({
           <Button onClick={() => void save()} disabled={saving}>
             {saving && <Loader2 className="animate-spin" />}
             保存世界书
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function isBuiltinRegexPack(pack: RegexPack) {
+  return pack.id === BUILTIN_CHAT_REGEX_PACK_ID || pack.id.startsWith('builtin-')
+}
+
+function RegexPackManager({
+  open,
+  pack,
+  onOpenChange,
+  onEditRule,
+  onDeleteRule,
+  onSaved,
+}: {
+  open: boolean
+  pack: RegexPack
+  onOpenChange: (open: boolean) => void
+  onEditRule: (rule: RegexRule) => void
+  onDeleteRule: (rule: RegexRule) => void
+  onSaved: () => void
+}) {
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+
+  async function toggleRule(rule: RegexRule) {
+    setTogglingId(rule.id)
+    try {
+      await updateRegexRule(rule.id, {
+        name: rule.name,
+        pattern: rule.pattern,
+        replacement: rule.replacement,
+        flags: rule.flags,
+        scope: rule.scope,
+        enabled: !rule.enabled,
+      })
+      toast.success(rule.enabled ? '规则已停用' : '规则已启用', { description: rule.name })
+      onSaved()
+    } catch (error) {
+      toast.error('切换规则失败', { description: getErrorMessage(error) })
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[calc(100dvh-1.5rem)] max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{pack.name}</DialogTitle>
+          <DialogDescription>
+            {pack.rules.length} 条规则，{pack.rules.filter((rule) => rule.enabled).length} 条启用。
+            开关会立即保存，并影响引用这个正则包的对话。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="max-h-[58dvh] space-y-2 overflow-y-auto pr-1">
+          {pack.rules.map((rule) => (
+            <div
+              key={rule.id}
+              data-testid="regex-pack-rule"
+              className="flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center"
+            >
+              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                <Checkbox
+                  checked={rule.enabled}
+                  disabled={togglingId !== null}
+                  onChange={() => void toggleRule(rule)}
+                  aria-label={`${rule.enabled ? '停用' : '启用'}规则 ${rule.name}`}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{rule.name}</span>
+                    <Badge variant={rule.enabled ? 'success' : 'outline'}>
+                      {rule.enabled ? '启用' : '停用'}
+                    </Badge>
+                    <Badge variant="outline">
+                      {rule.scope === 'both'
+                        ? '输入 + 输出'
+                        : rule.scope === 'input'
+                          ? '输入'
+                          : '输出'}
+                    </Badge>
+                  </span>
+                  <code className="text-muted-foreground mt-1 block truncate text-[11px]">
+                    /{rule.pattern}/{rule.flags} → {rule.replacement || '（空）'}
+                  </code>
+                </span>
+              </label>
+              <div className="flex shrink-0 justify-end gap-1">
+                <Button size="sm" variant="ghost" onClick={() => onEditRule(rule)}>
+                  <Pencil />
+                  编辑
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  disabled={rule.id === BUILTIN_CHAT_REGEX_ID}
+                  title={
+                    rule.id === BUILTIN_CHAT_REGEX_ID ? '内置微信气泡不可删除，可以停用' : undefined
+                  }
+                  onClick={() => onDeleteRule(rule)}
+                >
+                  <Trash2 />
+                  删除
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            关闭
           </Button>
         </DialogFooter>
       </DialogContent>
