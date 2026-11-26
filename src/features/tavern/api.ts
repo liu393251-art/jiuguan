@@ -66,6 +66,9 @@ import {
   type AutoImagePromptMode,
 } from './lib/image-prompt'
 import {
+  MEMORY_WRITE_CHUNK_CHARS,
+  MEMORY_WRITE_MAX_ATTEMPTS,
+  MEMORY_WRITE_TIMEOUT_MS,
   buildCompressionMergePrompt,
   buildCompressionMergeSystemPrompt,
   buildMemoryWriteMessages,
@@ -73,8 +76,10 @@ import {
   chunkCompressionTranscript,
   collectCompressionTurns,
   formatCompressionTurns,
+  isRetryableMemoryWriteError,
   normalizeCompressedMemory,
   planMemoryRefresh,
+  readMemoryCompletion,
   selectTurnsForMemoryWrite,
 } from './lib/memory-compression'
 import type { CompletionTransport } from './lib/stream-completion'
@@ -693,28 +698,87 @@ const memoryCompressionRuns = new Map<string, Promise<MemoryCompressionResult | 
 
 export type MemoryWriteKind = 'compressed' | 'summary'
 
-async function requestCompressionCompletion(
+async function requestMemoryCompletion(
   prepared: PreparedChatGeneration & { profile: ApiProfile },
   messages: ChatCompletionMessage[],
   generation: PreparedChatGeneration['generation'],
 ) {
   const controller = new AbortController()
-  const timeout = globalThis.setTimeout(() => controller.abort(), 90_000)
+  const timeout = globalThis.setTimeout(() => controller.abort(), MEMORY_WRITE_TIMEOUT_MS)
   try {
-    const result = await streamChatCompletion(
-      { ...prepared, messages, generation },
-      () => {},
-      controller.signal,
-    )
-    return result.content.trim()
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    }
+    if (prepared.profile.apiKey.trim()) {
+      headers.Authorization = `Bearer ${prepared.profile.apiKey.trim()}`
+    }
+    // 非流式：手机端某些网络库对 SSE 支持不稳定，压缩走普通 JSON 更可靠。
+    const response = await externalFetch(completionUrl(prepared.profile.baseUrl), {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: prepared.profile.model,
+        messages: messages satisfies ChatCompletionMessage[],
+        stream: false,
+        temperature: generation.temperature,
+        top_p: generation.topP,
+        max_tokens: generation.maxTokens,
+        presence_penalty: generation.presencePenalty,
+        frequency_penalty: generation.frequencyPenalty,
+      }),
+    })
+    if (!response.ok) throw new Error(await readResponseError(response))
+    const payload: unknown = await response.json().catch(() => null)
+    const apiError = extractApiErrorMessage(payload)
+    if (apiError) throw new Error(apiError)
+    return readMemoryCompletion(payload).content
   } catch (error) {
     if (controller.signal.aborted) {
-      throw new Error('记忆压缩请求超时，请稍后重试。', { cause: error })
+      throw new Error(`记忆请求超过 ${Math.round(MEMORY_WRITE_TIMEOUT_MS / 1000)} 秒没有返回。`, {
+        cause: error,
+      })
     }
     throw error
   } finally {
     globalThis.clearTimeout(timeout)
   }
+}
+
+/** 每段记忆请求最多重试 3 次；空正文时逐次加大输出额度，兼容推理模型。 */
+async function requestMemoryWrite(
+  prepared: PreparedChatGeneration & { profile: ApiProfile },
+  system: string,
+  user: string,
+  baseGeneration: PreparedChatGeneration['generation'],
+  baseTokens: number,
+  label: string,
+) {
+  let lastError: unknown = null
+  for (let attempt = 1; attempt <= MEMORY_WRITE_MAX_ATTEMPTS; attempt += 1) {
+    const maxTokens = attempt === 1 ? baseTokens : Math.min(4000, baseTokens * attempt)
+    const started = Date.now()
+    try {
+      return await requestMemoryCompletion(
+        prepared,
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        { ...baseGeneration, maxTokens },
+      )
+    } catch (error) {
+      lastError = error
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(
+        `[memory] ${label} 第 ${attempt}/${MEMORY_WRITE_MAX_ATTEMPTS} 次失败（${Date.now() - started}ms，max_tokens=${maxTokens}）：${message}`,
+      )
+      if (!isRetryableMemoryWriteError(error) || attempt === MEMORY_WRITE_MAX_ATTEMPTS) break
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 800 * attempt))
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 async function runMemoryCompression(
@@ -764,7 +828,7 @@ async function runMemoryCompression(
     context.character.name,
     context.identity.displayName,
   )
-  const chunks = chunkCompressionTranscript(lines)
+  const chunks = chunkCompressionTranscript(lines, MEMORY_WRITE_CHUNK_CHARS)
   if (chunks.length === 0) {
     throw new Error('这段对话还没有可压缩的完整消息。')
   }
@@ -796,35 +860,45 @@ async function runMemoryCompression(
       total: chunks.length,
       previousMemory: index === 0 ? previousSummary : '',
     })
-    const text = await requestCompressionCompletion(
-      prepared,
-      [
-        { role: 'system', content: messages.system },
-        { role: 'user', content: messages.user },
-      ],
-      compressionGeneration,
-    )
-    if (!text) throw new Error('记忆压缩接口没有返回有效文本。')
+    let text: string
+    try {
+      text = await requestMemoryWrite(
+        prepared,
+        messages.system,
+        messages.user,
+        compressionGeneration,
+        kind === 'summary' ? 700 : 900,
+        `第 ${index + 1}/${chunks.length} 段`,
+      )
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(`第 ${index + 1}/${chunks.length} 段记忆请求失败：${reason}`, {
+        cause: error,
+      })
+    }
     partials.push(text)
   }
 
   const merged =
     partials.length === 1
       ? partials[0]
-      : await requestCompressionCompletion(
-          prepared,
-          [
-            {
-              role: 'system',
-              content:
-                kind === 'summary'
-                  ? buildMemoryWriteSystemPrompt('summary', customPrompt)
-                  : buildCompressionMergeSystemPrompt(customPrompt),
-            },
-            { role: 'user', content: buildCompressionMergePrompt(partials) },
-          ],
-          { ...compressionGeneration, maxTokens: kind === 'summary' ? 900 : 1600 },
-        )
+      : await (async () => {
+          try {
+            return await requestMemoryWrite(
+              prepared,
+              kind === 'summary'
+                ? buildMemoryWriteSystemPrompt('summary', customPrompt)
+                : buildCompressionMergeSystemPrompt(customPrompt),
+              buildCompressionMergePrompt(partials),
+              compressionGeneration,
+              kind === 'summary' ? 900 : 1600,
+              '合并分段记忆',
+            )
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error)
+            throw new Error(`合并分段记忆失败：${reason}`, { cause: error })
+          }
+        })()
   const summary = normalizeCompressedMemory(merged)
   if (!summary) throw new Error('记忆压缩接口没有返回有效文本。')
 

@@ -3,9 +3,13 @@ import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../types'
 import {
   DEFAULT_MEMORY_PROMPT,
+  MEMORY_COMPRESSION_CHUNK_CHARS,
   MEMORY_COMPRESSION_MAX_SUMMARY_CHARS,
   MEMORY_REFRESH_FORCE_CHARS,
   MEMORY_REFRESH_MIN_CHARS,
+  MEMORY_WRITE_CHUNK_CHARS,
+  MEMORY_WRITE_MAX_ATTEMPTS,
+  MEMORY_WRITE_TIMEOUT_MS,
   buildCompressionChunkPrompt,
   buildCompressionMergeSystemPrompt,
   buildCompressionSystemPrompt,
@@ -16,8 +20,10 @@ import {
   collectCompressionTurns,
   countCompletedMessages,
   formatCompressionTurns,
+  isRetryableMemoryWriteError,
   normalizeCompressedMemory,
   planMemoryRefresh,
+  readMemoryCompletion,
   selectTurnsForMemoryWrite,
 } from './memory-compression'
 
@@ -194,5 +200,45 @@ describe('memory compression helpers', () => {
     expect(selectTurnsForMemoryWrite(turns, 2)).toEqual(['三', '四', '五'])
     expect(selectTurnsForMemoryWrite(turns, 5)).toEqual(turns)
     expect(selectTurnsForMemoryWrite(turns, 99)).toEqual(turns)
+  })
+
+  it('reads non-stream memory responses and explains empty ones', () => {
+    const ok = readMemoryCompletion({
+      choices: [{ message: { content: '两人约好周四去看雨。' }, finish_reason: 'stop' }],
+    })
+    expect(ok.content).toBe('两人约好周四去看雨。')
+    expect(ok.finishReason).toBe('stop')
+
+    expect(() =>
+      readMemoryCompletion({
+        choices: [
+          {
+            message: { content: '', reasoning_content: '我想了很久……' },
+            finish_reason: 'length',
+          },
+        ],
+      }),
+    ).toThrow(/思考/)
+
+    expect(() =>
+      readMemoryCompletion({
+        choices: [{ message: { content: '' }, finish_reason: 'stop' }],
+      }),
+    ).toThrow(/没有生成记忆正文/)
+  })
+
+  it('retries network and empty responses but not auth errors', () => {
+    expect(isRetryableMemoryWriteError(new Error('记忆请求超过 180 秒没有返回。'))).toBe(true)
+    expect(isRetryableMemoryWriteError(new Error('接口返回成功，但没有生成记忆正文。'))).toBe(true)
+    expect(isRetryableMemoryWriteError(new Error('接口返回 HTTP 502。'))).toBe(true)
+    expect(isRetryableMemoryWriteError(new Error('接口返回 HTTP 401。'))).toBe(false)
+    expect(isRetryableMemoryWriteError(new Error('invalid api key'))).toBe(false)
+    expect(isRetryableMemoryWriteError(new Error('model_not_found'))).toBe(false)
+  })
+
+  it('keeps memory chunks small enough for mobile requests', () => {
+    expect(MEMORY_WRITE_CHUNK_CHARS).toBeLessThan(MEMORY_COMPRESSION_CHUNK_CHARS)
+    expect(MEMORY_WRITE_TIMEOUT_MS).toBeGreaterThanOrEqual(120_000)
+    expect(MEMORY_WRITE_MAX_ATTEMPTS).toBeGreaterThanOrEqual(2)
   })
 })

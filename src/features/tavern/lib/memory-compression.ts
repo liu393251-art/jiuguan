@@ -1,9 +1,15 @@
 import type { ChatMessage } from '../types'
+import { extractCompletionFinishReason, extractCompletionText } from './chat-completion'
 import { stripChatLayoutMarkers } from './chat-layout'
 import { stripChatArtifacts } from './safe-markdown-text'
 
 export const MEMORY_COMPRESSION_CHUNK_CHARS = 12_000
 export const MEMORY_COMPRESSION_MAX_SUMMARY_CHARS = 8_000
+
+/** 记忆请求走非流式接口：慢一点，但在手机网络和各类中转站上稳定得多。 */
+export const MEMORY_WRITE_CHUNK_CHARS = 8_000
+export const MEMORY_WRITE_TIMEOUT_MS = 180_000
+export const MEMORY_WRITE_MAX_ATTEMPTS = 3
 
 /** 记忆写入不是每轮都做：攒够新内容才请求一次 API。 */
 export const MEMORY_REFRESH_MIN_MESSAGES = 10
@@ -258,4 +264,48 @@ export function normalizeCompressedMemory(value: string) {
     .replace(/```$/gm, '')
     .trim()
   return cleaned.slice(0, MEMORY_COMPRESSION_MAX_SUMMARY_CHARS)
+}
+
+function reasoningChars(payload: unknown) {
+  if (!payload || typeof payload !== 'object' || !('choices' in payload)) return 0
+  const choices = (payload as { choices?: unknown }).choices
+  if (!Array.isArray(choices) || choices.length === 0) return 0
+  const first = choices[0]
+  if (!first || typeof first !== 'object') return 0
+  const message = (first as { message?: unknown }).message
+  if (!message || typeof message !== 'object') return 0
+  const reasoning = (message as { reasoning_content?: unknown }).reasoning_content
+  return typeof reasoning === 'string' ? reasoning.length : 0
+}
+
+/**
+ * 解析一次非流式的记忆请求。空正文在手机端很常见：
+ * 推理模型把 max_tokens 用在了思考上、或中转站只回 reasoning_content。
+ * 这里把原因说清楚，交给上层决定是否加大额度重试。
+ */
+export function readMemoryCompletion(payload: unknown) {
+  const content = extractCompletionText(payload).trim()
+  const finishReason = extractCompletionFinishReason(payload)
+  const thinking = reasoningChars(payload)
+
+  if (!content) {
+    if (thinking > 0 && finishReason === 'length') {
+      throw new Error('模型把输出额度用在了思考上，没写出记忆正文。')
+    }
+    if (thinking > 0) {
+      throw new Error('模型只返回了思考过程，没有返回记忆正文。')
+    }
+    throw new Error('接口返回成功，但没有生成记忆正文。')
+  }
+
+  return { content, finishReason, reasoningChars: thinking }
+}
+
+/** 网络抖动、超时、5xx、空正文都值得重试；鉴权/参数错误重试也没用。 */
+export function isRetryableMemoryWriteError(error: unknown) {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  if (/401|403|unauthorized|forbidden|invalid api key|api key/.test(message)) return false
+  if (/404|model_not_found|does not exist|no such model/.test(message)) return false
+  if (/400|invalid_request|invalid parameter|unsupported/.test(message)) return false
+  return true
 }
