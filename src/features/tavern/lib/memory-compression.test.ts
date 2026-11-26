@@ -21,6 +21,7 @@ import {
   countCompletedMessages,
   formatCompressionTurns,
   isRetryableMemoryWriteError,
+  isValidMemoryEntryFormat,
   normalizeCompressedMemory,
   planMemoryRefresh,
   readMemoryCompletion,
@@ -89,7 +90,7 @@ describe('memory compression helpers', () => {
     })
 
     expect(system).toContain('保留未完成的约定。')
-    expect(system).toContain('只输出记忆正文')
+    expect(system).toContain('记忆条目')
     expect(prompt).toContain('第 1/2 段')
     expect(prompt).toContain('两人约好在酒馆见面。')
     expect(prompt).toContain('阿远：明晚见。')
@@ -107,7 +108,7 @@ describe('memory compression helpers', () => {
     const merge = buildCompressionMergeSystemPrompt(prompt)
 
     expect(merge).toContain(prompt)
-    expect(merge).toContain('合并成一份统一')
+    expect(merge).toContain('把多段记忆合并成一份')
     expect(buildCompressionMergeSystemPrompt('')).not.toContain('用户指定的记忆要求')
   })
 
@@ -146,7 +147,7 @@ describe('memory compression helpers', () => {
     })
 
     expect(messages.system).toContain(prompt)
-    expect(messages.system).toContain('只输出记忆正文')
+    expect(messages.system).toContain('记忆条目')
     expect(messages.user).toContain('第 2/3 段')
     expect(messages.user).toContain('沈昭宁：今晚几点关。')
     expect(messages.user).toContain('两人在书店里第一次单独说话。')
@@ -214,7 +215,7 @@ describe('memory compression helpers', () => {
         choices: [
           {
             message: { content: '', reasoning_content: '我想了很久……' },
-            finish_reason: 'length',
+            finish_reason: 'stop',
           },
         ],
       }),
@@ -225,6 +226,39 @@ describe('memory compression helpers', () => {
         choices: [{ message: { content: '' }, finish_reason: 'stop' }],
       }),
     ).toThrow(/没有生成记忆正文/)
+  })
+
+  it('rejects truncated memory output instead of storing half a sentence', () => {
+    expect(() =>
+      readMemoryCompletion({
+        choices: [
+          {
+            message: { content: '【人物】\n· 苏念｜20 岁｜新闻系大二\n· 陆晚｜21 岁｜新闻系大三，苏念室友\n【事实】\n· 陆晚在' },
+            finish_reason: 'length',
+          },
+        ],
+      }),
+    ).toThrow(/截断/)
+  })
+
+  it('caps memory at a line boundary', () => {
+    const long = Array.from({ length: 200 }, (_, index) => `· 第 ${index + 1} 条事实，写得很长很长很长。`).join('\n')
+    const normalized = normalizeCompressedMemory(long)
+
+    expect(normalized.length).toBeLessThanOrEqual(MEMORY_COMPRESSION_MAX_SUMMARY_CHARS)
+    expect(normalized.endsWith('。')).toBe(true)
+  })
+
+  it('tells retold stories apart from memory entries', () => {
+    expect(
+      isValidMemoryEntryFormat('【人物】\n· 苏念｜20 岁｜新闻系大二\n【约定】\n· 次日七点半见'),
+    ).toBe(true)
+    expect(isValidMemoryEntryFormat('· 一号事实\n· 二号事实\n· 三号事实')).toBe(true)
+    expect(
+      isValidMemoryEntryFormat(
+        '雨夜十一点半，苏念下晚班后手机没电，站在便利店门口。江小白替她付了关东煮的钱，然后两人一起上车。',
+      ),
+    ).toBe(false)
   })
 
   it('retries network and empty responses but not auth errors', () => {

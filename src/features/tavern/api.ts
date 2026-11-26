@@ -77,6 +77,7 @@ import {
   collectCompressionTurns,
   formatCompressionTurns,
   isRetryableMemoryWriteError,
+  isValidMemoryEntryFormat,
   normalizeCompressedMemory,
   planMemoryRefresh,
   readMemoryCompletion,
@@ -754,13 +755,15 @@ async function requestMemoryWrite(
   baseGeneration: PreparedChatGeneration['generation'],
   baseTokens: number,
   label: string,
+  options: { requireEntries?: boolean } = {},
 ) {
   let lastError: unknown = null
+  let lastNarrativeText = ''
   for (let attempt = 1; attempt <= MEMORY_WRITE_MAX_ATTEMPTS; attempt += 1) {
     const maxTokens = attempt === 1 ? baseTokens : Math.min(4000, baseTokens * attempt)
     const started = Date.now()
     try {
-      return await requestMemoryCompletion(
+      const text = await requestMemoryCompletion(
         prepared,
         [
           { role: 'system', content: system },
@@ -768,6 +771,11 @@ async function requestMemoryWrite(
         ],
         { ...baseGeneration, maxTokens },
       )
+      if (options.requireEntries && !isValidMemoryEntryFormat(text)) {
+        lastNarrativeText = text
+        throw new Error('输出不是记忆条目格式（又把剧情复述了一遍）。')
+      }
+      return text
     } catch (error) {
       lastError = error
       const message = error instanceof Error ? error.message : String(error)
@@ -777,6 +785,11 @@ async function requestMemoryWrite(
       if (!isRetryableMemoryWriteError(error) || attempt === MEMORY_WRITE_MAX_ATTEMPTS) break
       await new Promise((resolve) => globalThis.setTimeout(resolve, 800 * attempt))
     }
+  }
+  // 实在写不成条目：宁可留一段叙事记忆，也别让整次压缩白跑（长度由 normalize 截断）。
+  if (lastNarrativeText) {
+    console.warn(`[memory] ${label} 始终不是条目格式，已按原文长度截断后接受。`)
+    return lastNarrativeText
   }
   throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
@@ -869,6 +882,7 @@ async function runMemoryCompression(
         compressionGeneration,
         kind === 'summary' ? 700 : 900,
         `第 ${index + 1}/${chunks.length} 段`,
+        { requireEntries: kind !== 'summary' },
       )
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
@@ -893,6 +907,7 @@ async function runMemoryCompression(
               compressionGeneration,
               kind === 'summary' ? 900 : 1600,
               '合并分段记忆',
+              { requireEntries: kind !== 'summary' },
             )
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error)
