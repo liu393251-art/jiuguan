@@ -319,14 +319,7 @@ function finishMessage(
   const target = findSession(state, sessionId)
   if (target) {
     updateSessionMeta(target, state.messages[sessionId])
-    if (status === 'complete' && target.memoryMode === 'summary') {
-      const lastUser = [...state.messages[sessionId]].reverse().find((item) => item.role === 'user')
-      const character = findCharacter(state, target.characterId)
-      if (lastUser) {
-        const snippet = `最近你与${character?.name ?? '对方'}谈到：${lastUser.content.slice(0, 52)}。`
-        target.memorySummary = [target.memorySummary, snippet].filter(Boolean).join(' ').slice(-240)
-      }
-    }
+    // 摘要/压缩记忆由聊天 API 在客户端生成后写回，这里不再拼假摘要。
   }
   return updated
 }
@@ -506,6 +499,7 @@ export const tavernHandlers = [
         memoryProfileId: state.settings.memoryProfile.id,
         memoryMode: activeLoadout.memoryMode,
         memorySummary: '',
+        memorySummaryCursor: 0,
         generation: preset ? { ...preset.generation } : { ...defaultGeneration },
         fontSize: state.settings.appearance.defaultChatFontSize,
         lastMessagePreview: firstMessage
@@ -576,6 +570,7 @@ export const tavernHandlers = [
         memoryProfileId: state.settings.memoryProfile.id,
         memoryMode: state.settings.memoryProfile.mode,
         memorySummary: '',
+        memorySummaryCursor: 0,
         generation: { ...defaultGeneration },
         fontSize: state.settings.appearance.defaultChatFontSize,
         lastMessagePreview: messagePreview(last),
@@ -796,7 +791,9 @@ export const tavernHandlers = [
     const messages =
       session.memoryMode === 'vector'
         ? allMessages
-        : allMessages.slice(-Math.max(4, state.settings.memoryProfile.maxMessages))
+        : session.memoryMode === 'off'
+          ? allMessages.slice(-1)
+          : allMessages.slice(-Math.max(4, state.settings.memoryProfile.maxMessages))
     const lastUser = [...allMessages].reverse().find((message) => message.role === 'user')
     const memoryRecall = await buildMemoryRecall(state, session, lastUser?.content ?? '')
 

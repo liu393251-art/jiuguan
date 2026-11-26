@@ -866,7 +866,8 @@ export function SettingsPage() {
                         聊天 API 压缩
                       </p>
                       <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
-                        新对话每次完整回复后，都会用这条对话的生成连接把全部已完成历史压缩成长期记忆；需要先配置可用的聊天
+                        新对话会等新消息攒到一定量（约 10 条且 8000 字，或积攒到 20000
+                        字）才用这条对话的生成连接压缩一次，不会每轮都请求；需要先配置可用的聊天
                         API。压缩内容只保存在当前对话里，不上传云端数据库。
                       </p>
                     </div>
@@ -1203,12 +1204,12 @@ const MEMORY_MODES: { value: MemoryMode; label: string; hint: string }[] = [
   {
     value: 'summary',
     label: '摘要记忆',
-    hint: '自动沉淀长期摘要，适合连续剧情。',
+    hint: '攒够新内容后用聊天 API 生成长期摘要，不每轮请求。',
   },
   {
     value: 'compressed',
     label: '压缩记忆',
-    hint: '每次回复后调用聊天 API，把全部上下文压缩成长期记忆。',
+    hint: '上下文快满时调用聊天 API 压缩一次，平时不额外请求。',
   },
   {
     value: 'vector',

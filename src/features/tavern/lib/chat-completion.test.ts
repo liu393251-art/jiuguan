@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 
 import type { ChatGenerationContext, ChatMessage, UserIdentity } from '../types'
 import {
@@ -41,6 +41,7 @@ function context(
       memoryProfileId: null,
       memoryMode: 'recent',
       memorySummary: '',
+      memorySummaryCursor: 0,
       generation: {
         temperature: 0.8,
         topP: 0.9,
@@ -226,5 +227,46 @@ describe('chat completion prompt', () => {
     expect(prompt[0]?.content).not.toContain('这段召回不应进入压缩模式。')
     expect(prompt[0]?.content).not.toContain('这段提示词不应变成记忆正文。')
     expect(prompt.at(-1)?.content).toContain('第 30 条。')
+  })
+
+  it('feeds the generated summary in summary mode without leaking the prompt', () => {
+    const messages = Array.from({ length: 30 }, (_, index) =>
+      message(`m-${index}`, index % 2 === 0 ? 'user' : 'assistant', `第 ${index + 1} 条。`),
+    )
+    const summaryContext = context(undefined, messages)
+    summaryContext.session.memoryMode = 'summary'
+    summaryContext.session.memorySummary = '两人把周五的约改到了周四。'
+    summaryContext.memoryProfile.summaryPrompt = '这段提示词只用于生成摘要。'
+    summaryContext.memoryProfile.maxMessages = 20
+
+    const prompt = buildPromptMessages(summaryContext)
+
+    expect(prompt).toHaveLength(21)
+    expect(prompt[0]?.content).toContain('两人把周五的约改到了周四。')
+    expect(prompt[0]?.content).not.toContain('这段提示词只用于生成摘要。')
+  })
+
+  it('keeps only the latest turn when memory is off', () => {
+    const messages = Array.from({ length: 12 }, (_, index) =>
+      message(`m-${index}`, index % 2 === 0 ? 'user' : 'assistant', `第 ${index + 1} 条。`),
+    )
+    const offContext = context(undefined, messages)
+    offContext.session.memoryMode = 'off'
+
+    const prompt = buildPromptMessages(offContext)
+
+    expect(prompt).toHaveLength(2)
+    expect(prompt[0]?.content).not.toContain('长期记忆')
+    expect(prompt.at(-1)?.content).toContain('第 12 条。')
+  })
+
+  it('does not inject the summary prompt in recent mode', () => {
+    const recentContext = context()
+    recentContext.memoryProfile.summaryPrompt = '这段话只用于生成摘要。'
+
+    const prompt = buildPromptMessages(recentContext)
+
+    expect(prompt[0]?.content).not.toContain('这段话只用于生成摘要。')
+    expect(prompt[0]?.content).not.toContain('长期记忆')
   })
 })

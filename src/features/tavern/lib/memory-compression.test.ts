@@ -2,13 +2,23 @@ import { describe, expect, it } from 'vitest'
 
 import type { ChatMessage } from '../types'
 import {
+  DEFAULT_MEMORY_PROMPT,
   MEMORY_COMPRESSION_MAX_SUMMARY_CHARS,
+  MEMORY_REFRESH_FORCE_CHARS,
+  MEMORY_REFRESH_MIN_CHARS,
   buildCompressionChunkPrompt,
+  buildCompressionMergeSystemPrompt,
   buildCompressionSystemPrompt,
+  buildMemoryWriteMessages,
+  buildMemoryWriteSystemPrompt,
+  buildSummarySystemPrompt,
   chunkCompressionTranscript,
   collectCompressionTurns,
+  countCompletedMessages,
   formatCompressionTurns,
   normalizeCompressedMemory,
+  planMemoryRefresh,
+  selectTurnsForMemoryWrite,
 } from './memory-compression'
 
 function message(
@@ -84,5 +94,105 @@ describe('memory compression helpers', () => {
     expect(normalizeCompressedMemory('字'.repeat(20_000))).toHaveLength(
       MEMORY_COMPRESSION_MAX_SUMMARY_CHARS,
     )
+  })
+
+  it('uses the configured prompt for both compress and merge requests', () => {
+    const prompt = '重点保留两个人的称呼变化和没说完的话。'
+    const merge = buildCompressionMergeSystemPrompt(prompt)
+
+    expect(merge).toContain(prompt)
+    expect(merge).toContain('合并成一份统一')
+    expect(buildCompressionMergeSystemPrompt('')).not.toContain('用户指定的记忆要求')
+  })
+
+  it('builds a summary prompt that is separate from the compression rules', () => {
+    const system = buildSummarySystemPrompt('只记关系变化。')
+
+    expect(system).toContain('只记关系变化。')
+    expect(system).toContain('只输出摘要正文')
+    expect(system).toContain('600 字以内')
+    expect(system).not.toContain('记忆压缩器')
+    expect(buildSummarySystemPrompt('')).toContain('长期记忆摘要器')
+  })
+
+  it('keeps a default memory prompt for empty settings', () => {
+    expect(DEFAULT_MEMORY_PROMPT).toContain('承诺')
+    expect(DEFAULT_MEMORY_PROMPT).toContain('时间线')
+  })
+
+  it('routes the memory prompt into both write modes', () => {
+    const prompt = '记住她左手无名指的浅疤。'
+
+    expect(buildMemoryWriteSystemPrompt('compressed', prompt)).toContain(prompt)
+    expect(buildMemoryWriteSystemPrompt('summary', prompt)).toContain(prompt)
+    expect(buildMemoryWriteSystemPrompt('compressed', '')).not.toContain('用户指定的记忆要求')
+  })
+
+  it('sends the prompt and the transcript in the same request', () => {
+    const prompt = '重点写清楚两人对彼此的称呼怎么变的。'
+    const messages = buildMemoryWriteMessages({
+      kind: 'compressed',
+      customPrompt: prompt,
+      chunk: '沈昭宁：今晚几点关。\n苏念：平时十点半。',
+      index: 2,
+      total: 3,
+      previousMemory: '两人在书店里第一次单独说话。',
+    })
+
+    expect(messages.system).toContain(prompt)
+    expect(messages.system).toContain('只输出记忆正文')
+    expect(messages.user).toContain('第 2/3 段')
+    expect(messages.user).toContain('沈昭宁：今晚几点关。')
+    expect(messages.user).toContain('两人在书店里第一次单独说话。')
+  })
+
+  it('only refreshes the memory after enough new content', () => {
+    const longChat = Array.from({ length: 30 }, (_, index) =>
+      message(index % 2 === 0 ? 'user' : 'assistant', '字'.repeat(400)),
+    )
+
+    const firstRun = planMemoryRefresh(longChat, 0)
+    expect(firstRun.coveredMessages).toBe(30)
+    expect(firstRun.pendingMessages).toBe(30)
+    expect(firstRun.needed).toBe(true)
+
+    const afterRefresh = planMemoryRefresh(longChat, 22)
+    expect(afterRefresh.pendingMessages).toBe(8)
+    expect(afterRefresh.pendingChars).toBe(3_200)
+    expect(afterRefresh.needed).toBe(false)
+
+    const shortChat = planMemoryRefresh(longChat.slice(0, 4), 0)
+    expect(shortChat.needed).toBe(false)
+
+    const hugeMessage = planMemoryRefresh(
+      [message('user', '字'.repeat(MEMORY_REFRESH_FORCE_CHARS + 200))],
+      0,
+    )
+    expect(hugeMessage.needed).toBe(true)
+  })
+
+  it('ignores unfinished or empty messages when planning', () => {
+    const messages = [
+      message('system', '系统提示'),
+      message('user', ''),
+      message('assistant', '写到一半', 'streaming'),
+      message('user', '失败的请求', 'error'),
+      message('user', '字'.repeat(MEMORY_REFRESH_MIN_CHARS / 10)),
+    ]
+
+    const plan = planMemoryRefresh(messages, 0)
+
+    expect(countCompletedMessages(messages)).toBe(1)
+    expect(plan.coveredMessages).toBe(1)
+    expect(plan.needed).toBe(false)
+  })
+
+  it('only sends the messages that are not in the memory yet', () => {
+    const turns = ['一', '二', '三', '四', '五']
+
+    expect(selectTurnsForMemoryWrite(turns, 0)).toEqual(turns)
+    expect(selectTurnsForMemoryWrite(turns, 2)).toEqual(['三', '四', '五'])
+    expect(selectTurnsForMemoryWrite(turns, 5)).toEqual(turns)
+    expect(selectTurnsForMemoryWrite(turns, 99)).toEqual(turns)
   })
 })

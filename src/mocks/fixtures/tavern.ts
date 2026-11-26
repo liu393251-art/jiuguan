@@ -2,17 +2,25 @@ import { defaultImageGeneration, type TavernState } from '@/features/tavern/type
 import { createBuiltinComboResources } from '@/features/tavern/lib/builtin-combos'
 import { createBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
 import { createBuiltinCreationLabResources } from '@/features/tavern/lib/builtin-creation-lab'
+import { createBuiltinHelihuaResources } from '@/features/tavern/lib/builtin-helihua'
 
 export function createSeedState(): TavernState {
   const builtinCombos = createBuiltinComboResources()
   const creationLab = createBuiltinCreationLabResources()
+  const helihua = createBuiltinHelihuaResources()
   return {
-    characters: creationLab.characters,
-    loadouts: creationLab.loadouts,
+    characters: [...creationLab.characters, ...helihua.characters],
+    loadouts: [...creationLab.loadouts, ...helihua.loadouts],
     combos: builtinCombos.combos,
-    presets: [...builtinCombos.presets, ...creationLab.presets],
-    worldBooks: creationLab.worldBooks,
-    regexRules: [createBuiltinChatRegex(), ...builtinCombos.regexRules, ...creationLab.regexRules],
+    presets: [...builtinCombos.presets, ...creationLab.presets, ...helihua.presets],
+    worldBooks: [...creationLab.worldBooks, ...helihua.worldBooks],
+    regexRules: [
+      createBuiltinChatRegex(),
+      ...builtinCombos.regexRules,
+      ...creationLab.regexRules,
+      ...helihua.regexRules,
+    ],
+
     sessions: [],
     messages: {},
     vectorMemories: [],

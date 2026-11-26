@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 
 import type { ChatGenerationContext } from '../types'
 import {
@@ -22,6 +22,7 @@ function context(): ChatGenerationContext {
       memoryProfileId: null,
       memoryMode: 'recent',
       memorySummary: '',
+      memorySummaryCursor: 0,
       generation: {
         temperature: 0.8,
         topP: 0.9,

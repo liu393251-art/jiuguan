@@ -5,6 +5,7 @@ import {
   Layers,
   Loader2,
   MessageCircleMore,
+  Package,
   Pencil,
   Plus,
   Sparkles,
@@ -55,6 +56,7 @@ import {
 } from '@/features/tavern/hooks/use-tavern'
 import { BUILTIN_CHAT_REGEX_ID, withBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
 import { isBuiltinCreationLabLoadout } from '@/features/tavern/lib/builtin-creation-lab'
+import { isBuiltinHelihuaLoadout } from '@/features/tavern/lib/builtin-helihua'
 import {
   buildRegexPacks,
   findRegexPackForRules,
@@ -203,6 +205,12 @@ export function LoadoutsPage() {
         }
         actions={
           <>
+            <Button variant="outline" asChild>
+              <Link to="/import/files?pack=1">
+                <Package />
+                导入配套
+              </Link>
+            </Button>
             <Button variant="outline" asChild>
               <Link to="/import/files">
                 <Upload />
@@ -401,12 +409,20 @@ export function LoadoutsPage() {
           }
           action={
             characters.length === 0 ? (
-              <Button asChild>
-                <Link to="/import/files">
-                  <Upload />
-                  去导入角色卡
-                </Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button asChild>
+                  <Link to="/import/files?pack=1">
+                    <Package />
+                    导入配套包
+                  </Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link to="/import/files">
+                    <Upload />
+                    去导入角色卡
+                  </Link>
+                </Button>
+              </div>
             ) : (
               <Button onClick={() => setEditor({ open: true })}>
                 <Plus />
@@ -442,9 +458,8 @@ export function LoadoutsPage() {
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       <Badge variant="outline">{memoryLabels[loadout.memoryMode]}</Badge>
-                      {isBuiltinCreationLabLoadout(loadout.id) && (
-                        <Badge variant="info">内置</Badge>
-                      )}
+                      {(isBuiltinCreationLabLoadout(loadout.id) ||
+                        isBuiltinHelihuaLoadout(loadout.id)) && <Badge variant="info">内置</Badge>}
                     </div>
                   </div>
 

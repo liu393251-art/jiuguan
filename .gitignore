@@ -11,3 +11,7 @@ release
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# local build / deliverable output
+output/
+.pnpm-store/

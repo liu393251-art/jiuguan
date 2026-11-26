@@ -75,15 +75,16 @@ describe('builtin creation lab', () => {
   it('seeds the creation lab into a fresh tavern state', () => {
     const state = createSeedState()
 
-    expect(state.characters).toHaveLength(3)
+    // 种子状态同时包含「创作工坊」三套与「合理化世界」五张卡，所以这里是总数。
+    expect(state.characters).toHaveLength(8)
     expect(state.presets.some((preset) => preset.id === 'builtin-preset-lisug-atri-gemini')).toBe(
       true,
     )
-    expect(state.presets).toHaveLength(4)
-    expect(state.worldBooks).toHaveLength(3)
-    expect(state.loadouts).toHaveLength(3)
+    expect(state.presets).toHaveLength(5)
+    expect(state.worldBooks).toHaveLength(4)
+    expect(state.loadouts).toHaveLength(8)
     expect(state.regexRules[0]?.id).toBe(BUILTIN_CHAT_REGEX_ID)
-    expect(state.regexRules).toHaveLength(12)
+    expect(state.regexRules).toHaveLength(25)
   })
 
   it('adds the creation lab to an existing state only once', () => {

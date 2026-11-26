@@ -427,7 +427,7 @@ export function ChatPage() {
           {messagesState.isCompressingMemory && (
             <div className="text-muted-foreground flex items-center gap-2 px-6 py-2 text-[11px]">
               <Loader2 className="size-3 animate-spin" />
-              正在用聊天 API 把全部上下文压缩进长期记忆…
+              正在用聊天 API 更新长期记忆…
             </div>
           )}
         </div>

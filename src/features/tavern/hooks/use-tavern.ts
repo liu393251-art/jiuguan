@@ -24,6 +24,7 @@ import {
   regenerateReply,
   sendMessage,
   streamChatCompletion,
+  summarizeChatMemory,
   updateChat,
   updateMessage,
 } from '../api'
@@ -322,10 +323,34 @@ export function useChatMessages(sessionId: string) {
           setCompressingSessionId(sessionId)
           void compressChatMemory(sessionId)
             .then((result) =>
-              result ? updateChat(sessionId, { memorySummary: result.summary }) : null,
+              result
+                ? updateChat(sessionId, {
+                    memorySummary: result.summary,
+                    memorySummaryCursor: result.coveredMessages,
+                  })
+                : null,
             )
             .catch((error: unknown) => {
               toast.warning('长期记忆压缩没有完成', {
+                description: getErrorMessage(error),
+              })
+            })
+            .finally(() => {
+              setCompressingSessionId((current) => (current === sessionId ? null : current))
+            })
+        } else if (completion.complete && prepared.memoryMode === 'summary') {
+          setCompressingSessionId(sessionId)
+          void summarizeChatMemory(sessionId)
+            .then((result) =>
+              result
+                ? updateChat(sessionId, {
+                    memorySummary: result.summary,
+                    memorySummaryCursor: result.coveredMessages,
+                  })
+                : null,
+            )
+            .catch((error: unknown) => {
+              toast.warning('长期摘要没有生成', {
                 description: getErrorMessage(error),
               })
             })

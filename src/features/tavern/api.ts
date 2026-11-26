@@ -66,14 +66,16 @@ import {
   type AutoImagePromptMode,
 } from './lib/image-prompt'
 import {
-  buildCompressionChunkPrompt,
   buildCompressionMergePrompt,
   buildCompressionMergeSystemPrompt,
-  buildCompressionSystemPrompt,
+  buildMemoryWriteMessages,
+  buildMemoryWriteSystemPrompt,
   chunkCompressionTranscript,
   collectCompressionTurns,
   formatCompressionTurns,
   normalizeCompressedMemory,
+  planMemoryRefresh,
+  selectTurnsForMemoryWrite,
 } from './lib/memory-compression'
 import type { CompletionTransport } from './lib/stream-completion'
 
@@ -684,9 +686,12 @@ export type MemoryCompressionResult = {
   summary: string
   chunkCount: number
   model: string
+  coveredMessages: number
 }
 
 const memoryCompressionRuns = new Map<string, Promise<MemoryCompressionResult | null>>()
+
+export type MemoryWriteKind = 'compressed' | 'summary'
 
 async function requestCompressionCompletion(
   prepared: PreparedChatGeneration & { profile: ApiProfile },
@@ -715,13 +720,18 @@ async function requestCompressionCompletion(
 async function runMemoryCompression(
   sessionId: string,
   force: boolean,
+  kind: MemoryWriteKind,
 ): Promise<MemoryCompressionResult | null> {
   const [context, settings, messages] = await Promise.all([
     getChatGenerationContext(sessionId),
     getSettings(),
     getAllChatMessages(sessionId),
   ])
-  if (!force && context.session.memoryMode !== 'compressed') return null
+  if (!force && context.session.memoryMode !== kind) return null
+
+  // 自动写入只在攒够新内容时触发，避免每轮回复都额外请求一次 API。
+  const plan = planMemoryRefresh(messages, context.session.memorySummaryCursor ?? 0)
+  if (!force && !plan.needed) return null
 
   const profile =
     settings.apiProfiles.find((item) => item.id === context.session.apiProfileId) ??
@@ -745,7 +755,15 @@ async function runMemoryCompression(
     throw new Error('这段对话还没有可压缩的完整消息。')
   }
 
-  const lines = formatCompressionTurns(turns, context.character.name, context.identity.displayName)
+  // 已有记忆时只压缩新增的那几条，老内容由上次的长期记忆带进来，避免每次重发整段历史。
+  const previousSummary = context.session.memorySummary.trim()
+  const sourceTurns = selectTurnsForMemoryWrite(turns, plan.coveredMessages)
+
+  const lines = formatCompressionTurns(
+    sourceTurns,
+    context.character.name,
+    context.identity.displayName,
+  )
   const chunks = chunkCompressionTranscript(lines)
   if (chunks.length === 0) {
     throw new Error('这段对话还没有可压缩的完整消息。')
@@ -762,26 +780,27 @@ async function runMemoryCompression(
   const compressionGeneration = {
     temperature: 0.2,
     topP: 0.9,
-    maxTokens: 900,
+    maxTokens: kind === 'summary' ? 700 : 900,
     presencePenalty: 0,
     frequencyPenalty: 0,
   }
-  const systemPrompt = buildCompressionSystemPrompt(settings.memoryProfile.summaryPrompt)
+  // 记忆方式是全局「记忆」设置里的提示词，压缩和摘要都会把它原样带给模型。
+  const customPrompt = settings.memoryProfile.summaryPrompt.trim()
   const partials: string[] = []
   for (const [index, chunk] of chunks.entries()) {
+    const messages = buildMemoryWriteMessages({
+      kind,
+      customPrompt,
+      chunk,
+      index: index + 1,
+      total: chunks.length,
+      previousMemory: index === 0 ? previousSummary : '',
+    })
     const text = await requestCompressionCompletion(
       prepared,
       [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: buildCompressionChunkPrompt({
-            chunk,
-            index: index + 1,
-            total: chunks.length,
-            previousMemory: index === 0 ? context.session.memorySummary : '',
-          }),
-        },
+        { role: 'system', content: messages.system },
+        { role: 'user', content: messages.user },
       ],
       compressionGeneration,
     )
@@ -795,21 +814,35 @@ async function runMemoryCompression(
       : await requestCompressionCompletion(
           prepared,
           [
-            { role: 'system', content: buildCompressionMergeSystemPrompt() },
+            {
+              role: 'system',
+              content:
+                kind === 'summary'
+                  ? buildMemoryWriteSystemPrompt('summary', customPrompt)
+                  : buildCompressionMergeSystemPrompt(customPrompt),
+            },
             { role: 'user', content: buildCompressionMergePrompt(partials) },
           ],
-          { ...compressionGeneration, maxTokens: 1600 },
+          { ...compressionGeneration, maxTokens: kind === 'summary' ? 900 : 1600 },
         )
   const summary = normalizeCompressedMemory(merged)
   if (!summary) throw new Error('记忆压缩接口没有返回有效文本。')
 
-  return { summary, chunkCount: chunks.length, model: profile.model.trim() }
+  return { summary, chunkCount: chunks.length, model: profile.model.trim(), coveredMessages: plan.coveredMessages }
 }
 
 export function compressChatMemory(sessionId: string, options: { force?: boolean } = {}) {
+  return runMemoryCompressionOnce(sessionId, options.force === true, 'compressed')
+}
+
+export function summarizeChatMemory(sessionId: string, options: { force?: boolean } = {}) {
+  return runMemoryCompressionOnce(sessionId, options.force === true, 'summary')
+}
+
+function runMemoryCompressionOnce(sessionId: string, force: boolean, kind: MemoryWriteKind) {
   const running = memoryCompressionRuns.get(sessionId)
   if (running) return running
-  const run = runMemoryCompression(sessionId, options.force === true).finally(() => {
+  const run = runMemoryCompression(sessionId, force, kind).finally(() => {
     if (memoryCompressionRuns.get(sessionId) === run) memoryCompressionRuns.delete(sessionId)
   })
   memoryCompressionRuns.set(sessionId, run)

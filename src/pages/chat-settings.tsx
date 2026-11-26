@@ -11,7 +11,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { compressChatMemory, getErrorMessage, updateChat } from '@/features/tavern/api'
+import {
+  compressChatMemory,
+  getErrorMessage,
+  summarizeChatMemory,
+  updateChat,
+} from '@/features/tavern/api'
 import { CharacterAvatar } from '@/features/tavern/components/avatar'
 import {
   useCharacters,
@@ -36,6 +41,7 @@ type Draft = {
   regexRuleIds: string[]
   memoryMode: MemoryMode
   memorySummary: string
+  memorySummaryCursor: number
   generation: GenerationSettings
   fontSize: number
 }
@@ -59,7 +65,7 @@ const memoryModes: { value: MemoryMode; label: string; hint: string }[] = [
   {
     value: 'compressed',
     label: '压缩记忆',
-    hint: '每次回复后用聊天 API 把全部上下文压成长期记忆。',
+    hint: '上下文快满时才用聊天 API 压缩一次，保留长期记忆。',
   },
   {
     value: 'vector',
@@ -78,6 +84,7 @@ function toDraft(session: ChatSession): Draft {
     regexRuleIds: [...session.regexRuleIds],
     memoryMode: session.memoryMode,
     memorySummary: session.memorySummary,
+    memorySummaryCursor: session.memorySummaryCursor ?? 0,
     generation: { ...session.generation },
     fontSize: session.fontSize,
   }
@@ -103,6 +110,7 @@ export function ChatSettingsPage() {
   )
   const [saving, setSaving] = useState(false)
   const [compressing, setCompressing] = useState(false)
+  const [summarizing, setSummarizing] = useState(false)
 
   const session = sessionQuery.data
   const draft =
@@ -210,6 +218,7 @@ export function ChatSettingsPage() {
         memoryProfileId: session.memoryProfileId,
         memoryMode: draft.memoryMode,
         memorySummary: draft.memorySummary,
+        memorySummaryCursor: draft.memorySummaryCursor,
         generation: {
           temperature: clamp(draft.generation.temperature, 0, 2),
           topP: clamp(draft.generation.topP, 0, 1),
@@ -236,7 +245,7 @@ export function ChatSettingsPage() {
     try {
       const result = await compressChatMemory(session.id, { force: true })
       if (!result) throw new Error('这段对话还没有可压缩的完整消息。')
-      patchDraft({ memorySummary: result.summary })
+      patchDraft({ memorySummary: result.summary, memorySummaryCursor: result.coveredMessages })
       toast.success('已压缩全部上下文', {
         description: `分 ${result.chunkCount} 段完成 · ${result.model}。保存后写入这段对话。`,
       })
@@ -244,6 +253,23 @@ export function ChatSettingsPage() {
       toast.error('记忆压缩失败', { description: getErrorMessage(error) })
     } finally {
       setCompressing(false)
+    }
+  }
+
+  async function summarizeMemoryNow() {
+    if (!session || !draft) return
+    setSummarizing(true)
+    try {
+      const result = await summarizeChatMemory(session.id, { force: true })
+      if (!result) throw new Error('这段对话还没有可摘要的完整消息。')
+      patchDraft({ memorySummary: result.summary, memorySummaryCursor: result.coveredMessages })
+      toast.success('已生成长期摘要', {
+        description: `分 ${result.chunkCount} 段完成 · ${result.model}。保存后写入这段对话。`,
+      })
+    } catch (error) {
+      toast.error('摘要生成失败', { description: getErrorMessage(error) })
+    } finally {
+      setSummarizing(false)
     }
   }
 
@@ -536,8 +562,44 @@ export function ChatSettingsPage() {
                 </Button>
               </div>
               <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
-                每次完整回复后，都会用这条对话的聊天 API
-                把全部已完成历史压缩成下方长期记忆；接口失败不会影响聊天，只保留上一次成功压缩的内容。后续回复会带压缩记忆和最近消息。
+                不会每轮都请求：新增的完整消息攒到 10 条且 8000 字、或积攒到 20000 字（接近上下文上限）时，才用这条对话的聊天
+                API 把已完成历史压缩成下方长期记忆，请求会带上「设置 → 记忆」里的压缩提示词。接口失败不会影响聊天，只保留上一次成功压缩的内容。后续回复会带压缩记忆和最近消息。
+              </p>
+              <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
+                已覆盖 {draft.memorySummaryCursor} 条消息 · 压缩提示词：
+                {settingsQuery.data?.memoryProfile.summaryPrompt.trim() || '未填写，使用默认规则'}
+              </p>
+            </div>
+          )}
+          {draft.memoryMode === 'summary' && (
+            <div className="border-primary/15 bg-primary/[0.035] mt-3 rounded-xl border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                  <Archive className="text-primary size-4" />
+                  聊天 API 摘要
+                  <Badge variant="outline">
+                    {selectedApiProfile?.model.trim() || '未配置模型'}
+                  </Badge>
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void summarizeMemoryNow()}
+                  disabled={summarizing}
+                >
+                  {summarizing ? <Loader2 className="animate-spin" /> : <Archive />}
+                  {summarizing ? '正在摘要…' : '立即生成长期摘要'}
+                </Button>
+              </div>
+              <p className="text-muted-foreground mt-1.5 text-[11px] leading-relaxed">
+                同样不是每轮都请求：新增的完整消息攒到 10 条且 8000 字、或积攒到 20000 字时，才用这条对话的聊天 API
+                把已完成历史整理成一段长期摘要，写进下方；请求会带上「设置 →
+                记忆」里的摘要提示词。摘要会随对话一起带上，再配最近消息作为即时上下文。
+              </p>
+              <p className="text-muted-foreground mt-1 text-[11px] leading-relaxed">
+                已覆盖 {draft.memorySummaryCursor} 条消息 · 摘要提示词：
+                {settingsQuery.data?.memoryProfile.summaryPrompt.trim() || '未填写，使用默认规则'}
               </p>
             </div>
           )}

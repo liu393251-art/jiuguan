@@ -5,6 +5,7 @@ import {
 } from '@/features/tavern/lib/builtin-combos'
 import { BUILTIN_CHAT_REGEX_ID, createBuiltinChatRegex } from '@/features/tavern/lib/builtin-regex'
 import { reconcileBuiltinCreationLabResources } from '@/features/tavern/lib/builtin-creation-lab'
+import { reconcileBuiltinHelihuaResources } from '@/features/tavern/lib/builtin-helihua'
 import {
   repairIncompleteMessage,
   stripIncompleteSpeakerTag,
@@ -16,6 +17,7 @@ export const TAVERN_STORAGE_KEY = 'xiaobai.tavern.v3'
 const BUILTIN_REGEX_MIGRATION_KEY = 'xiaobai.tavern.builtin-regex.v1'
 const BUILTIN_COMBOS_MIGRATION_KEY = 'xiaobai.tavern.builtin-combos.v2'
 const BUILTIN_CREATION_LAB_MIGRATION_KEY = 'xiaobai.tavern.builtin-creation-lab.v1'
+const BUILTIN_HELIHUA_MIGRATION_KEY = 'xiaobai.tavern.builtin-helihua.v1'
 
 function storageAvailable() {
   return typeof window !== 'undefined' && Boolean(window.localStorage)
@@ -57,6 +59,15 @@ function ensureBuiltinCreationLabMigration(state: TavernState) {
   return changed
 }
 
+function ensureBuiltinHelihuaMigration(state: TavernState) {
+  if (!storageAvailable() || window.localStorage.getItem(BUILTIN_HELIHUA_MIGRATION_KEY) === '1') {
+    return false
+  }
+  const changed = reconcileBuiltinHelihuaResources(state)
+  window.localStorage.setItem(BUILTIN_HELIHUA_MIGRATION_KEY, '1')
+  return changed
+}
+
 function repairIncompleteMessages(state: TavernState) {
   let changed = false
   for (const messages of Object.values(state.messages)) {
@@ -86,7 +97,8 @@ export function readTavernState(): TavernState {
         const regexMigrated = ensureBuiltinRegexMigration(parsed.data)
         const combosMigrated = ensureBuiltinComboMigration(parsed.data)
         const creationLabMigrated = ensureBuiltinCreationLabMigration(parsed.data)
-        if (regexMigrated || combosMigrated || creationLabMigrated || repairedMessages) {
+        const helihuaMigrated = ensureBuiltinHelihuaMigration(parsed.data)
+        if (regexMigrated || combosMigrated || creationLabMigrated || helihuaMigrated || repairedMessages) {
           writeTavernState(parsed.data)
         }
         return parsed.data

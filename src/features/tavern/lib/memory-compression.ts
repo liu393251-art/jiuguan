@@ -5,6 +5,58 @@ import { stripChatArtifacts } from './safe-markdown-text'
 export const MEMORY_COMPRESSION_CHUNK_CHARS = 12_000
 export const MEMORY_COMPRESSION_MAX_SUMMARY_CHARS = 8_000
 
+/** 记忆写入不是每轮都做：攒够新内容才请求一次 API。 */
+export const MEMORY_REFRESH_MIN_MESSAGES = 10
+export const MEMORY_REFRESH_MIN_CHARS = 8_000
+export const MEMORY_REFRESH_FORCE_CHARS = 20_000
+
+type CompletedMessageLike = Pick<ChatMessage, 'role' | 'content' | 'status'>
+
+function usableMessages(messages: CompletedMessageLike[]) {
+  return messages.filter(
+    (message) =>
+      message.role !== 'system' && message.status === 'complete' && message.content.trim().length > 0,
+  )
+}
+
+export function countCompletedMessages(messages: CompletedMessageLike[]) {
+  return usableMessages(messages).length
+}
+
+export type MemoryRefreshPlan = {
+  needed: boolean
+  coveredMessages: number
+  pendingMessages: number
+  pendingChars: number
+}
+
+/**
+ * 判断这次回复后要不要调 API 重写长期记忆。
+ * 默认：攒够 10 条且 8000 字，或者积攒超过 20000 字（接近上下文上限）才压缩一次；
+ * 手动点“立即压缩 / 立即摘要”时绕过这个判断。
+ */
+export function planMemoryRefresh(
+  messages: CompletedMessageLike[],
+  cursor: number,
+  options: { minMessages?: number; minChars?: number; forceChars?: number } = {},
+): MemoryRefreshPlan {
+  const available = usableMessages(messages)
+  const start = Math.min(Math.max(0, Math.trunc(cursor) || 0), available.length)
+  const pending = available.slice(start)
+  const pendingChars = pending.reduce((sum, message) => sum + message.content.trim().length, 0)
+  const minMessages = options.minMessages ?? MEMORY_REFRESH_MIN_MESSAGES
+  const minChars = options.minChars ?? MEMORY_REFRESH_MIN_CHARS
+  const forceChars = options.forceChars ?? MEMORY_REFRESH_FORCE_CHARS
+
+  return {
+    needed:
+      pendingChars >= forceChars || (pending.length >= minMessages && pendingChars >= minChars),
+    coveredMessages: available.length,
+    pendingMessages: pending.length,
+    pendingChars,
+  }
+}
+
 const COMPRESSION_RULES = [
   '你是长期记忆压缩器，服务于中文角色扮演对话。',
   '请把提供的全部对话压缩成一份可长期复用的记忆，供后续续写参考。',
@@ -22,6 +74,23 @@ const MERGE_RULES = [
   '保留人物关系、重要事件、承诺、未完成事项和关键设定；删掉重复和无关细节。',
   '不要续写剧情，不要编造内容；只输出记忆正文，全文控制在 1200 字以内。',
 ].join('\n')
+
+const SUMMARY_RULES = [
+  '你是长期记忆摘要器，服务于中文角色扮演对话。',
+  '请把提供的对话整理成一份可以长期沿用的摘要，供后续续写参考。',
+  '写清楚：人物身份与关系的变化、称呼、重要事件与因果、承诺与约定、未完成的任务或矛盾、关键物品与地点。',
+  '按时间顺序、用第三人称写成连贯短文；不要续写剧情，不要编造对话里没有的信息，不要 Markdown 标题或列表前缀。',
+  '只输出摘要正文，全文控制在 600 字以内。',
+].join('\n')
+
+export const DEFAULT_MEMORY_PROMPT =
+  '优先保留：人物身份与关系、称呼、重要事件与因果、承诺与约定、未完成的任务或矛盾、关键物品与地点、时间线，以及用户明确要求记住的设定。'
+
+function withExtraPrompt(rules: string, extraPrompt: string) {
+  const extra = extraPrompt.trim()
+  if (!extra) return rules
+  return `${rules}\n\n用户指定的记忆要求（优先于上面的通用要求）：\n${extra}`
+}
 
 export type CompressionTurn = {
   role: 'user' | 'assistant'
@@ -103,9 +172,29 @@ function readableMemory(value: string) {
   return value.replace(/\s+/g, ' ').trim()
 }
 
+/** 只把还没进记忆的那几条送进压缩请求；一条都不剩时才重发全部。 */
+export function selectTurnsForMemoryWrite<T>(turns: T[], coveredCount: number) {
+  const covered = Math.min(Math.max(0, Math.trunc(coveredCount) || 0), turns.length)
+  const pending = turns.slice(covered)
+  return pending.length > 0 ? pending : turns
+}
+
 export function buildCompressionSystemPrompt(extraPrompt = '') {
-  const extra = extraPrompt.trim()
-  return extra ? `${COMPRESSION_RULES}\n补充要求（优先遵守）：${extra}` : COMPRESSION_RULES
+  return withExtraPrompt(COMPRESSION_RULES, extraPrompt)
+}
+
+export function buildSummarySystemPrompt(extraPrompt = '') {
+  return withExtraPrompt(SUMMARY_RULES, extraPrompt)
+}
+
+/** 压缩 / 摘要请求统一入口：两种记忆方式都会带上用户填写的记忆提示词。 */
+export function buildMemoryWriteSystemPrompt(
+  kind: 'compressed' | 'summary',
+  extraPrompt = '',
+) {
+  return kind === 'summary'
+    ? buildSummarySystemPrompt(extraPrompt)
+    : buildCompressionSystemPrompt(extraPrompt)
 }
 
 export function buildCompressionChunkPrompt({
@@ -137,8 +226,30 @@ export function buildCompressionMergePrompt(partials: string[]) {
   return `请合并以下分段记忆：\n\n${body}`
 }
 
-export function buildCompressionMergeSystemPrompt() {
-  return MERGE_RULES
+/** 一次压缩 / 摘要请求真正发出去的两条消息。 */
+export function buildMemoryWriteMessages({
+  kind,
+  customPrompt,
+  chunk,
+  index,
+  total,
+  previousMemory,
+}: {
+  kind: 'compressed' | 'summary'
+  customPrompt: string
+  chunk: string
+  index: number
+  total: number
+  previousMemory?: string
+}) {
+  return {
+    system: buildMemoryWriteSystemPrompt(kind, customPrompt),
+    user: buildCompressionChunkPrompt({ chunk, index, total, previousMemory }),
+  } as const
+}
+
+export function buildCompressionMergeSystemPrompt(extraPrompt = '') {
+  return withExtraPrompt(MERGE_RULES, extraPrompt)
 }
 
 export function normalizeCompressedMemory(value: string) {

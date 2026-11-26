@@ -54,8 +54,18 @@ function activeWorldEntries(context: ChatGenerationContext): WorldEntry[] {
     .sort((left, right) => left.order - right.order)
 }
 
+function memorySectionText(context: ChatGenerationContext) {
+  const { session, memoryRecall } = context
+  if (session.memoryMode === 'vector') return memoryRecall
+  if (session.memoryMode === 'compressed' || session.memoryMode === 'summary') {
+    return session.memorySummary
+  }
+  // 最近消息 / 关闭记忆：不额外注入长期记忆，摘要提示词只用于生成摘要本身。
+  return ''
+}
+
 function contextMessage(context: ChatGenerationContext) {
-  const { character, preset, identity, session, memoryProfile } = context
+  const { character, preset, identity } = context
   const characterName = character.name.trim() || '角色'
   const configuredName = identity.displayName.trim()
   const userName = configuredName || '对方'
@@ -99,18 +109,7 @@ function contextMessage(context: ChatGenerationContext) {
       '叙事预设',
       fill([preset?.name, preset?.description, preset?.promptSummary].filter(Boolean).join('\n')),
     ),
-    section(
-      '长期记忆',
-      fill(
-        session.memoryMode === 'vector'
-          ? context.memoryRecall
-          : session.memoryMode === 'compressed'
-            ? session.memorySummary
-            : [session.memorySummary, context.memoryRecall, memoryProfile.summaryPrompt]
-                .filter(Boolean)
-                .join('\n'),
-      ),
-    ),
+    section('长期记忆', fill(memorySectionText(context))),
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -144,7 +143,9 @@ export function buildPromptMessages(context: ChatGenerationContext) {
   const history =
     context.session.memoryMode === 'vector'
       ? completeHistory
-      : completeHistory.slice(-Math.max(4, context.memoryProfile.maxMessages))
+      : context.session.memoryMode === 'off'
+        ? completeHistory.slice(-1)
+        : completeHistory.slice(-Math.max(4, context.memoryProfile.maxMessages))
 
   return [
     { role: 'system' as const, content: contextMessage(context) },

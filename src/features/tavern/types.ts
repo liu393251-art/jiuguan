@@ -248,6 +248,7 @@ export const chatSessionSchema = z.object({
   memoryProfileId: z.string().nullable(),
   memoryMode: memoryModeSchema,
   memorySummary: z.string(),
+  memorySummaryCursor: z.number().int().nonnegative().default(0),
   generation: generationSettingsSchema,
   fontSize: z.number().int().min(13).max(22),
   lastMessagePreview: z.string(),
@@ -267,6 +268,7 @@ export const chatSessionPatchSchema = z.object({
   memoryProfileId: z.string().nullable().optional(),
   memoryMode: memoryModeSchema.optional(),
   memorySummary: z.string().optional(),
+  memorySummaryCursor: z.number().int().nonnegative().optional(),
   generation: generationSettingsSchema.optional(),
   fontSize: z.number().int().min(13).max(22).optional(),
 })

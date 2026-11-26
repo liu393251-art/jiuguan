@@ -51,6 +51,8 @@ React + Vite + TypeScript、Tailwind CSS v4、shadcn/ui 风格组件与 Radix pr
 - API 输入输出经过 Zod 校验。
 - 初始状态内置“微信式对话气泡”正则，一套预设+正则组合：`li'sug · ATRI Gemini` 预设搭配棠梨预设正则包中的 8 条正则，以及“创作工坊”三套可直接开聊的配套；其他角色、对话和内容仍由用户自行导入或创建。
 - 内置创作工坊三套配套：`掌卷 · 四楼书库`（世界书）、`卡匠 · 铸造台`（角色卡）、`调律师 · 旋钮台`（预设）。每套绑定同名创作预设（两份 Hashlib 预设与 `PresetForge v1`）、角色自带世界书和预设里的正则；角色、预设、世界书在角色库与导入区标记为“内置”，配套区可直接开始对话。
+- 内置「合理化世界」一套配套：群像卡 `梧桐里7栋`（沈昭宁 / 苏念 / 温以宁 / 周牧 / 程越五人同卡）加四张单人卡、25 条世界书、53 段 Hashlib 预设、13 条渲染归一正则（把 `<状态>`、`女 名字 好感12…`、`（）{}【】`、`名字：“…”` 归一到 `[[状态]]` 面板与 `【角色名】` 发言块），五套配套都标“内置”，开场白已写成小白酒馆的渲染格式并自带初始状态面板。
+- 导入配套的入口在导入区右上角、配套区右上角和空状态：`/import/files?pack=1` 只收 ZIP，`/import/files` 可同时拖入 ZIP、PNG 与 JSON；配套包会一次性创建角色卡、世界书、预设与正则并绑定成一套配套。
 - 组合只保存一个预设和一组正则，正则按整组下拉选择，不拆成单条勾选；不绑定角色、世界书或记忆。可在组合页新建和编辑，新建配套或调整对话设置时可直接套用组合。新建/编辑配套时，正则也按整组选择。导入区把同一来源的正则显示为一个正则包，进入包内可逐条启用、停用或编辑；内置微信气泡也作为独立正则包展示，并可在组合下拉中直接选择。内置组合的预设与正则会作为内置资源出现在导入区。
 - Mock 数据持久化 key 为 `xiaobai.tavern.v3`，可从设置页清空。
 - 导入文件在浏览器内解析，入库仍走 API -> MSW -> mock-db。
@@ -66,7 +68,10 @@ React + Vite + TypeScript、Tailwind CSS v4、shadcn/ui 风格组件与 Radix pr
 - 多人回复按 `【角色名】` 拆分；`「」`、`“”` 或用户直接输入的正文显示为左右气泡，动作、心理和环境描写（包括用户用 `（）` 写的内容）显示为居中无气泡正文。叙述使用比台词略大的字号，并且不会另起“心理/环境”发言者；输入框上方可一键插入 `“”` 与 `（）`。
 - SillyTavern 预设导入会保留 `prompt_order` 中启用的提示词，并按顺序注入系统提示。
 - 用户身份（称呼、人设）会注入系统提示；角色卡里的 `{{user}}` / `{{char}}`、`<user>` / `<char>` 会在请求前替换为当前称呼和角色名。
-- 压缩记忆会在每次完整回复后，用当前会话的聊天 API 把全部已完成历史压缩成长期记忆；历史过长时先分段压缩再合并，后续只带压缩结果和最近消息。压缩失败不影响聊天，并保留上一次成功的结果。
+- 压缩记忆不再每轮都请求：新增的完整消息攒到 10 条且 8000 字、或积攒到 20000 字（接近上下文上限）时，才用当前会话的聊天 API 压一次；而且只把还没进记忆的新消息送去压缩，旧内容由上一次的长期记忆带进来（分段压缩与合并两段都带「设置 → 记忆」里的压缩提示词），不会每次重发整段历史。后续只带压缩结果和最近消息；对话设置里可随时手动「立即压缩全部上下文」。
+- 摘要记忆同样是按需触发：攒够新消息后用摘要提示词把已完成历史整理成一段长期摘要，写回当前对话；对话设置里可手动「立即生成长期摘要」。两种记忆都会记录已覆盖到第几条消息（`memorySummaryCursor`），下次只判断新增部分是否够量。
+- 记忆方式各管一段：「关闭记忆」只带当前输入，「最近消息」只带最近 N 条原文，「摘要 / 压缩」注入长期记忆再加最近 N 条，「向量」完整带入当前对话并按语义召回旧对话。摘要 / 压缩提示词只用于生成记忆，不会再被当成记忆正文塞进上下文。
+
 - 向量记忆会为全部已完成的用户与角色消息建立本机索引，不再按最近条数淘汰；当前对话完整带入，旧会话按语义召回。向量库使用本机 IndexedDB 持久化，不再挤占 `localStorage` 配额，旧版本存在 `localStorage` 的向量会在首次启动时自动迁入；默认在本机计算向量，不联网、不上传云端数据库。只有显式选择 API 连接时才调用该连接的 `/embeddings`，失败会退回本机向量。
 - 助手消息里的完整或截断 JSON 状态补丁、状态说明不会进入正文和后续上下文；桌面端与移动端共用同一套过滤逻辑。
 - 助手回复末尾的 `[[状态]]` 数值块会从正文剥离，渲染成可展开/收起的角色状态卡；女性默认跟踪好感度、欲望值、堕落度，男性默认跟踪仇恨值、信任值、戒备值。格式见 `docs/state-card-format.md`。
@@ -121,3 +126,43 @@ pnpm test:e2e
 视觉检查覆盖 1440px 桌面与 390px 移动端、Light / Dark。E2E 会把基线截图写入 `docs/visual-baseline/`。
 
 当前边界：没有账号、云同步、云端向量数据库或服务端密钥托管；API Key 和普通数据以明文保存在当前设备的 `localStorage`，向量库和生成图片以明文保存在本机 IndexedDB。JSON 导出不包含生成图片二进制。正常重启与 App 更新会保留数据；卸载应用、清除应用数据或系统清理存储空间时仍可能删除，共享设备上不要填写生产密钥。Android 调试包允许 HTTP 明文接口，正式发布应使用 HTTPS 或单独配置网络安全策略。
+
+### Windows 上无法创建符号链接时
+
+`pnpm tauri android build --apk` 会在 `gen/android/app/src/main/jniLibs/<abi>/` 里给 `libapp_lib.so` 建符号链接；没开开发者模式、或账号没有 `SeCreateSymbolicLinkPrivilege` 时会报
+`Failed to create a symbolic link ... Creation symbolic link is not allowed for this system`。
+
+此时改成手动两步（脚本已放在 `output/`）：
+
+```powershell
+# 1) 按 ABI 用 NDK clang 编 libapp_lib.so，并复制进 jniLibs
+powershell -File output/build-android-manual.ps1
+# 2) 只跑 Gradle 打包（跳过 rustBuild* 任务），产物在
+#    src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+powershell -File output/build-android-gradle.ps1
+```
+
+确认 `ANDROID_HOME=D:\Android\Sdk`、`NDK_HOME=D:\Android\Sdk\ndk\27.2.12479018`、`CARGO_HOME=D:\cargo`、`RUSTUP_HOME=D:\rustup`，Gradle 需要写 `%USERPROFILE%\.gradle`，必要时给足权限。最后用 `apksigner` 签名：
+
+```powershell
+& "$env:ANDROID_HOME\build-tools\36.0.0\apksigner.bat" sign `
+  --ks D:\build-tools\jiuguan-release.jks --ks-pass pass:jiuguan2026 `
+  --key-pass pass:jiuguan2026 --ks-key-alias jiuguan `
+  --out artifacts\android\xiaobai-tavern-0.2.2.apk `
+  src-tauri\gen\android\app\build\outputs\apk\universal\release\app-universal-release-unsigned.apk
+```
+
+### 低占用打包
+
+打包时可以压低 CPU / 内存，慢一点但机器不卡：
+
+```powershell
+$env:CARGO_BUILD_JOBS = "2"      # rustc 最多两个并行任务
+# gen/android/gradle.properties 里已设：
+#   org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m
+#   org.gradle.workers.max=2
+#   org.gradle.parallel=false
+pnpm tauri android build --apk
+```
+
+没有符号链接权限时才需要走上面的手动流程；手动流程里 `cargo clean -p app --target <三元组>` 是必须的——只 touch 源码不会让 `tauri-build` 重新收集 `dist`，旧的前端会被打进包里。
